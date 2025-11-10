@@ -72,6 +72,41 @@ Cela créera:
 - 1 Admin B2B (john@demo.com / Demo123!)
 - 1 Utilisateur B2B (jane@demo.com / Demo123!)
 
+### 💾 Sauvegarde et Restauration de la Base de Données
+
+#### Sauvegarder la base de données
+```bash
+npm run backup-db
+# ou
+bash scripts/backup-database.sh
+```
+
+Cela créera un dump complet de la base de données dans `database-backup/gxprosign/`.
+
+#### Restaurer la base de données
+```bash
+npm run restore-db
+# ou
+bash scripts/restore-database.sh
+```
+
+⚠️ **Attention** : Cette opération **écrasera** la base de données existante.
+
+#### Structure du backup
+Le backup contient:
+- **Collections** : clients, users, documents, envelopes, signatures, fields, auditlogs
+- **Format** : BSON (format binaire MongoDB)
+- **Métadonnées** : Indexes et schémas
+
+#### Importer vers MongoDB Atlas ou autre serveur distant
+```bash
+# Définir l'URI MongoDB
+export MONGODB_URI="mongodb+srv://username:password@cluster.mongodb.net/gxprosign"
+
+# Restaurer
+mongorestore --uri="$MONGODB_URI" --drop ./database-backup
+```
+
 ### Démarrer le serveur en mode développement
 ```bash
 npm run dev

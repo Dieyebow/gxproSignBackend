@@ -48,6 +48,7 @@ temp/
 *.sql
 *.sqlite
 *.db
+database-backup/
 
 # Certificates & Keys
 *.pem

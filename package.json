@@ -7,7 +7,9 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "seed": "node scripts/seed.js",
-    "test-connection": "node scripts/test-connection.js"
+    "test-connection": "node scripts/test-connection.js",
+    "backup-db": "bash scripts/backup-database.sh",
+    "restore-db": "bash scripts/restore-database.sh"
   },
   "keywords": [
     "signature",
