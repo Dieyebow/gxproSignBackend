@@ -24,9 +24,11 @@ app.use(
   })
 );
 
-// CORS - Accepter plusieurs origines en développement
+// CORS - Accepter plusieurs origines
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  'https://gxprosign.com',
+  'https://www.gxprosign.com',
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:3000',
@@ -50,10 +52,14 @@ app.use(
         }
       }
 
-      // En production, vérifier strictement
-      if (allowedOrigins.includes(origin)) {
+      // En production, vérifier strictement les origines autorisées
+      // Autoriser aussi tous les sous-domaines de gxprosign.com (*.gxprosign.com)
+      const isGxproSignDomain = origin && origin.match(/^https:\/\/([a-z0-9-]+\.)?gxprosign\.com$/);
+
+      if (allowedOrigins.includes(origin) || isGxproSignDomain) {
         callback(null, true);
       } else {
+        console.warn(`⚠️  CORS blocked origin: ${origin}`);
         callback(new Error('Not allowed by CORS'));
       }
     },
