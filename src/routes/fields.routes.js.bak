@@ -1,0 +1,16 @@
+const express = require('express');
+const router = express.Router();
+const fieldController = require('../controllers/field.controller');
+const { authenticate, requireUser } = require('../middlewares/auth.middleware');
+
+// Protected routes (require authentication)
+router.get('/', authenticate, requireUser, fieldController.getFields);
+router.post('/', authenticate, requireUser, fieldController.createField);
+router.post('/bulk', authenticate, requireUser, fieldController.bulkCreateFields);
+router.put('/:id', authenticate, requireUser, fieldController.updateField);
+router.delete('/:id', authenticate, requireUser, fieldController.deleteField);
+
+// Public route (with token validation)
+router.post('/:id/fill', fieldController.fillField);
+
+module.exports = router;

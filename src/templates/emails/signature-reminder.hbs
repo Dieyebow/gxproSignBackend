@@ -1,0 +1,23 @@
+<h2>Rappel : Document en attente de signature</h2>
+
+<p>Bonjour {{recipientName}},</p>
+
+<p>Ceci est un rappel concernant le document envoyé par <strong>{{senderName}}</strong> qui est toujours en attente de votre signature.</p>
+
+<div class="info-box">
+  <p><strong>Document :</strong> {{documentTitle}}</p>
+  <p><strong>Envoyé le :</strong> {{sentAt}}</p>
+  {{#if expiresAt}}
+  <p><strong>Date d'expiration :</strong> {{expiresAt}}</p>
+  {{/if}}
+</div>
+
+<p>Pour éviter que ce document n'expire, veuillez le signer dès que possible :</p>
+
+<a href="{{signatureUrl}}" class="btn">Signer le document maintenant</a>
+
+<div class="divider"></div>
+
+<p style="font-size: 14px; color: #888;">
+  Si vous avez des questions concernant ce document, veuillez contacter directement {{senderName}} à {{senderEmail}}.
+</p>

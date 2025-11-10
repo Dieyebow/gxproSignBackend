@@ -1,0 +1,30 @@
+<h2>Document entièrement signé !</h2>
+
+<p>Bonjour {{senderName}},</p>
+
+<p>Excellente nouvelle ! Le document <strong>"{{documentTitle}}"</strong> a été signé par tous les destinataires.</p>
+
+<div class="info-box">
+  <p><strong>Document :</strong> {{documentTitle}}</p>
+  <p><strong>Nombre de signatures :</strong> {{signatureCount}}/{{recipientCount}}</p>
+  <p><strong>Complété le :</strong> {{completedAt}}</p>
+</div>
+
+<p><strong>Signataires :</strong></p>
+<ul style="margin: 15px 0 15px 30px; color: #555;">
+  {{#each recipients}}
+  <li>{{this.name}} ({{this.email}}) - Signé le {{this.signedAt}}</li>
+  {{/each}}
+</ul>
+
+<p>Vous pouvez maintenant télécharger le document signé depuis votre tableau de bord :</p>
+
+<a href="{{envelopeUrl}}" class="btn">Télécharger le document signé</a>
+
+<div class="divider"></div>
+
+<p style="font-size: 14px; color: #888;">
+  <strong>Que se passe-t-il ensuite ?</strong><br>
+  Le document signé est archivé de manière sécurisée et tous les signataires ont reçu une copie par email.
+  Vous pouvez consulter l'historique complet des signatures dans votre espace GXpro Sign.
+</p>

@@ -1,0 +1,36 @@
+<h2>Demande de signature</h2>
+
+<p>Bonjour {{recipientName}},</p>
+
+<p><strong>{{senderName}}</strong> vous a envoyé un document à signer via GXpro Sign.</p>
+
+<div class="info-box">
+  <p><strong>Document :</strong> {{documentTitle}}</p>
+  {{#if message}}
+  <p><strong>Message :</strong> {{message}}</p>
+  {{/if}}
+  {{#if expiresAt}}
+  <p><strong>Date d'expiration :</strong> {{expiresAt}}</p>
+  {{/if}}
+</div>
+
+{{#if description}}
+<p>{{description}}</p>
+{{/if}}
+
+<p>Pour consulter et signer ce document, cliquez sur le bouton ci-dessous :</p>
+
+<a href="{{signatureUrl}}" class="btn">Voir et signer le document</a>
+
+<div class="divider"></div>
+
+<p style="font-size: 14px; color: #888;">
+  <strong>Pourquoi ai-je reçu cet email ?</strong><br>
+  {{senderName}} a indiqué votre adresse email ({{recipientEmail}}) comme signataire pour ce document.<br>
+  Vous n'avez pas besoin de créer un compte pour signer.
+</p>
+
+<p style="font-size: 14px; color: #888;">
+  Si vous pensez avoir reçu cet email par erreur ou si vous ne souhaitez pas signer ce document,
+  vous pouvez l'ignorer ou le décliner via le lien ci-dessus.
+</p>

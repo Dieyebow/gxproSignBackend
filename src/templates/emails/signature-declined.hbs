@@ -1,0 +1,28 @@
+<h2>Signature refusée</h2>
+
+<p>Bonjour {{senderName}},</p>
+
+<p><strong>{{recipientName}}</strong> a refusé de signer le document <strong>"{{documentTitle}}"</strong>.</p>
+
+<div class="info-box">
+  <p><strong>Document :</strong> {{documentTitle}}</p>
+  <p><strong>Signataire :</strong> {{recipientName}} ({{recipientEmail}})</p>
+  <p><strong>Refusé le :</strong> {{declinedAt}}</p>
+  {{#if reason}}
+  <p><strong>Raison :</strong> {{reason}}</p>
+  {{/if}}
+</div>
+
+<p>L'enveloppe a été automatiquement annulée. Aucun autre signataire ne pourra signer ce document.</p>
+
+<p>Vous pouvez consulter les détails de cette enveloppe ou créer une nouvelle demande de signature :</p>
+
+<a href="{{envelopeUrl}}" class="btn">Voir les détails</a>
+
+<div class="divider"></div>
+
+<p style="font-size: 14px; color: #888;">
+  <strong>Que faire ensuite ?</strong><br>
+  Nous vous recommandons de contacter {{recipientName}} pour comprendre la raison du refus
+  et éventuellement renvoyer une nouvelle demande de signature avec un document modifié.
+</p>

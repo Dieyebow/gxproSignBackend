@@ -1,0 +1,51 @@
+{
+  "name": "gxprosign-backend",
+  "version": "1.0.0",
+  "description": "Backend API pour GXpro Sign - Plateforme de signature électronique",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "seed": "node scripts/seed.js",
+    "test-connection": "node scripts/test-connection.js"
+  },
+  "keywords": [
+    "signature",
+    "electronique",
+    "docusign",
+    "pdf",
+    "b2b"
+  ],
+  "author": "Peeloinc",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "bcryptjs": "^3.0.2",
+    "compression": "^1.7.4",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-mongo-sanitize": "^2.2.0",
+    "express-rate-limit": "^7.1.5",
+    "geoip-lite": "^1.4.10",
+    "handlebars": "^4.7.8",
+    "helmet": "^7.1.0",
+    "joi": "^17.11.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.0.3",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "node-cache": "^5.1.2",
+    "nodemailer": "^6.10.1",
+    "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.34.4",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "ua-parser-js": "^2.0.6",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
