@@ -42,11 +42,21 @@ const getSignatureInfo = async (req, res) => {
       });
     }
 
-    // Vérifier si déjà signé
-    if (recipient.status === 'SIGNED') {
+    // Vérifier si déjà signé/approuvé/rejeté
+    if (recipient.status === 'SIGNED' || recipient.status === 'APPROVED') {
+      const actionLabel = recipient.role === 'REVIEWER' || recipient.role === 'APPROVER'
+        ? 'approuvé'
+        : 'signé';
       return res.status(400).json({
         success: false,
-        message: 'Ce document a déjà été signé.',
+        message: `Ce document a déjà été ${actionLabel}.`,
+      });
+    }
+
+    if (recipient.status === 'DECLINED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Vous avez déjà rejeté ce document.',
       });
     }
 
