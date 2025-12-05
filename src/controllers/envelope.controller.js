@@ -301,36 +301,85 @@ exports.sendEnvelope = async (req, res) => {
     const senderName = sender ? `${sender.firstName} ${sender.lastName}` : envelope.sender.name || 'GXpro Sign';
 
     if (envelope.workflow.type === 'SEQUENTIAL') {
-      // Workflow séquentiel : envoyer seulement au premier signataire
+      // Workflow séquentiel : envoyer seulement au premier destinataire
       const firstRecipient = envelope.recipients.find((r) => r.order === 1);
-      if (firstRecipient && firstRecipient.role === 'SIGNER') {
-        console.log(`📧 Envoi email à: ${firstRecipient.email}`);
-        await emailService.sendSignatureRequestEmail({
-          recipientEmail: firstRecipient.email,
-          recipientName: `${firstRecipient.firstName} ${firstRecipient.lastName}`,
-          senderName,
-          documentTitle: envelope.title,
-          description: envelope.description || '',
-          message: envelope.emailMessage || 'Merci de signer ce document.',
-          signatureToken: firstRecipient.token,
-          expiresAt: envelope.expiresAt,
-        });
+      if (firstRecipient) {
+        console.log(`📧 Envoi email à: ${firstRecipient.email} (${firstRecipient.role})`);
+
+        if (firstRecipient.role === 'SIGNER') {
+          await emailService.sendSignatureRequestEmail({
+            recipientEmail: firstRecipient.email,
+            recipientName: `${firstRecipient.firstName} ${firstRecipient.lastName}`,
+            senderName,
+            documentTitle: envelope.title,
+            description: envelope.description || '',
+            message: envelope.emailMessage || 'Merci de signer ce document.',
+            signatureToken: firstRecipient.token,
+            expiresAt: envelope.expiresAt,
+          });
+        } else if (firstRecipient.role === 'REVIEWER') {
+          await emailService.sendReviewRequestEmail({
+            recipientEmail: firstRecipient.email,
+            recipientName: `${firstRecipient.firstName} ${firstRecipient.lastName}`,
+            senderName,
+            documentTitle: envelope.title,
+            description: envelope.description || '',
+            message: envelope.emailMessage || 'Merci de réviser ce document.',
+            reviewToken: firstRecipient.token,
+            expiresAt: envelope.expiresAt,
+          });
+        } else if (firstRecipient.role === 'APPROVER') {
+          await emailService.sendApprovalRequestEmail({
+            recipientEmail: firstRecipient.email,
+            recipientName: `${firstRecipient.firstName} ${firstRecipient.lastName}`,
+            senderName,
+            documentTitle: envelope.title,
+            description: envelope.description || '',
+            message: envelope.emailMessage || 'Merci d\'approuver ce document.',
+            approvalToken: firstRecipient.token,
+            expiresAt: envelope.expiresAt,
+          });
+        }
       }
     } else {
-      // Workflow parallèle : envoyer à tous les signataires
-      const signers = envelope.recipients.filter((r) => r.role === 'SIGNER');
-      for (const signer of signers) {
-        console.log(`📧 Envoi email à: ${signer.email}`);
-        await emailService.sendSignatureRequestEmail({
-          recipientEmail: signer.email,
-          recipientName: `${signer.firstName} ${signer.lastName}`,
-          senderName,
-          documentTitle: envelope.title,
-          description: envelope.description || '',
-          message: envelope.emailMessage || 'Merci de signer ce document.',
-          signatureToken: signer.token,
-          expiresAt: envelope.expiresAt,
-        });
+      // Workflow parallèle : envoyer à tous les destinataires selon leur rôle
+      for (const recipient of envelope.recipients) {
+        console.log(`📧 Envoi email à: ${recipient.email} (${recipient.role})`);
+
+        if (recipient.role === 'SIGNER') {
+          await emailService.sendSignatureRequestEmail({
+            recipientEmail: recipient.email,
+            recipientName: `${recipient.firstName} ${recipient.lastName}`,
+            senderName,
+            documentTitle: envelope.title,
+            description: envelope.description || '',
+            message: envelope.emailMessage || 'Merci de signer ce document.',
+            signatureToken: recipient.token,
+            expiresAt: envelope.expiresAt,
+          });
+        } else if (recipient.role === 'REVIEWER') {
+          await emailService.sendReviewRequestEmail({
+            recipientEmail: recipient.email,
+            recipientName: `${recipient.firstName} ${recipient.lastName}`,
+            senderName,
+            documentTitle: envelope.title,
+            description: envelope.description || '',
+            message: envelope.emailMessage || 'Merci de réviser ce document.',
+            reviewToken: recipient.token,
+            expiresAt: envelope.expiresAt,
+          });
+        } else if (recipient.role === 'APPROVER') {
+          await emailService.sendApprovalRequestEmail({
+            recipientEmail: recipient.email,
+            recipientName: `${recipient.firstName} ${recipient.lastName}`,
+            senderName,
+            documentTitle: envelope.title,
+            description: envelope.description || '',
+            message: envelope.emailMessage || 'Merci d\'approuver ce document.',
+            approvalToken: recipient.token,
+            expiresAt: envelope.expiresAt,
+          });
+        }
       }
     }
 
@@ -579,6 +628,321 @@ exports.downloadSignedPDF = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Erreur lors du téléchargement du PDF',
+      error: error.message,
+    });
+  }
+};
+/**
+ * Approuver un document (pour REVIEWER ou APPROVER)
+ */
+exports.approveDocument = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { comment, metadata } = req.body;
+
+    console.log('✅ POST /envelopes/approve/:token - Approbation document');
+    console.log('  Token:', token);
+
+    const envelope = await Envelope.findOne({ 'recipients.token': token });
+
+    if (!envelope) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document non trouvé',
+      });
+    }
+
+    const recipient = envelope.recipients.find(r => r.token === token);
+
+    if (!recipient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Destinataire non trouvé',
+      });
+    }
+
+    // Vérifier que le destinataire est REVIEWER ou APPROVER
+    if (recipient.role !== 'REVIEWER' && recipient.role !== 'APPROVER') {
+      return res.status(403).json({
+        success: false,
+        message: 'Seuls les reviewers et approvers peuvent approuver',
+      });
+    }
+
+    // Vérifier que le destinataire n'a pas déjà approuvé
+    if (recipient.status === 'APPROVED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Document déjà approuvé',
+      });
+    }
+
+    // Marquer comme approuvé
+    recipient.status = 'APPROVED';
+    recipient.action = 'APPROVE';
+    recipient.approvedAt = new Date();
+    recipient.declineReason = comment || null;
+
+    // Enregistrer les métadonnées
+    if (metadata) {
+      recipient.signatureMetadata = {
+        ...recipient.signatureMetadata,
+        ...metadata,
+      };
+    }
+
+    await envelope.save();
+
+    console.log('✅ Document approuvé par', recipient.email);
+
+    // Vérifier si tous les reviewers/approvers ont approuvé
+    const allReviewersApproved = envelope.recipients
+      .filter(r => r.role === 'REVIEWER')
+      .every(r => r.status === 'APPROVED' || r.status === 'SIGNED');
+
+    const allApproversApproved = envelope.recipients
+      .filter(r => r.role === 'APPROVER')
+      .every(r => r.status === 'APPROVED' || r.status === 'SIGNED');
+
+    // Si tous ont approuvé, passer au statut suivant
+    if (allReviewersApproved && allApproversApproved) {
+      // Vérifier si tous les signers ont aussi signé
+      const allSignersSigned = envelope.recipients
+        .filter(r => r.role === 'SIGNER')
+        .every(r => r.status === 'SIGNED');
+
+      if (allSignersSigned || envelope.recipients.filter(r => r.role === 'SIGNER').length === 0) {
+        envelope.status = 'COMPLETED';
+        envelope.dates.completedAt = new Date();
+        await envelope.save();
+
+        // Générer le PDF signé si nécessaire
+        const Field = require('../models/Field');
+        const Signature = require('../models/Signature');
+        const Document = require('../models/Document');
+        const pdfSignatureService = require('../services/pdfSignatureService');
+
+        const document = await Document.findById(envelope.documentId);
+        const signatures = await Signature.find({ envelopeId: envelope._id });
+        const fields = await Field.find({ envelopeId: envelope._id });
+
+        const pdfInfo = await pdfSignatureService.generateSignedPDF({
+          envelope,
+          document,
+          signatures,
+          fields,
+        });
+
+        envelope.signedDocument = pdfInfo;
+        await envelope.save();
+
+        console.log('✅ Enveloppe complétée et PDF généré');
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Document approuvé avec succès',
+      envelope: {
+        id: envelope._id,
+        status: envelope.status,
+        recipient: {
+          email: recipient.email,
+          status: recipient.status,
+          approvedAt: recipient.approvedAt,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('❌ Erreur approbation document:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors de l\'approbation',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Rejeter un document (pour REVIEWER ou APPROVER)
+ */
+exports.rejectDocument = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { reason, metadata } = req.body;
+
+    console.log('❌ POST /envelopes/reject/:token - Rejet document');
+    console.log('  Token:', token);
+
+    if (!reason || reason.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Une raison de rejet est requise',
+      });
+    }
+
+    const envelope = await Envelope.findOne({ 'recipients.token': token });
+
+    if (!envelope) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document non trouvé',
+      });
+    }
+
+    const recipient = envelope.recipients.find(r => r.token === token);
+
+    if (!recipient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Destinataire non trouvé',
+      });
+    }
+
+    // Vérifier que le destinataire est REVIEWER ou APPROVER
+    if (recipient.role !== 'REVIEWER' && recipient.role !== 'APPROVER') {
+      return res.status(403).json({
+        success: false,
+        message: 'Seuls les reviewers et approvers peuvent rejeter',
+      });
+    }
+
+    // Marquer comme rejeté
+    recipient.status = 'DECLINED';
+    recipient.action = 'REJECT';
+    recipient.declinedAt = new Date();
+    recipient.declineReason = reason;
+
+    // Enregistrer les métadonnées
+    if (metadata) {
+      recipient.signatureMetadata = {
+        ...recipient.signatureMetadata,
+        ...metadata,
+      };
+    }
+
+    // Marquer l'enveloppe entière comme DECLINED
+    envelope.status = 'DECLINED';
+
+    await envelope.save();
+
+    console.log('❌ Document rejeté par', recipient.email, '- Raison:', reason);
+
+    // Envoyer notification à l'expéditeur
+    const emailService = require('../services/emailService');
+    const Client = require('../models/Client');
+    const client = await Client.findById(envelope.clientId);
+
+    await emailService.sendSignatureDeclinedEmail({
+      senderEmail: envelope.sender.email,
+      senderName: envelope.sender.name,
+      recipientName: `${recipient.firstName} ${recipient.lastName}`,
+      recipientEmail: recipient.email,
+      documentTitle: envelope.title,
+      reason,
+      declinedAt: recipient.declinedAt,
+      envelopeId: envelope._id,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Document rejeté',
+      envelope: {
+        id: envelope._id,
+        status: envelope.status,
+        recipient: {
+          email: recipient.email,
+          status: recipient.status,
+          declinedAt: recipient.declinedAt,
+          reason,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('❌ Erreur rejet document:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors du rejet',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Rappeler (recall) une enveloppe (retirer pour modification)
+ */
+exports.recallEnvelope = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    console.log('🔙 POST /envelopes/:id/recall - Rappel enveloppe');
+    console.log('  Envelope ID:', id);
+
+    const envelope = await Envelope.findById(id);
+
+    if (!envelope) {
+      return res.status(404).json({
+        success: false,
+        message: 'Enveloppe non trouvée',
+      });
+    }
+
+    // Vérifier l'accès
+    if (envelope.clientId.toString() !== req.user.clientId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès refusé à cette enveloppe',
+      });
+    }
+
+    // Vérifier que l'enveloppe peut être rappelée
+    if (envelope.status === 'COMPLETED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Impossible de rappeler une enveloppe complétée',
+      });
+    }
+
+    if (envelope.status === 'RECALLED' || envelope.status === 'CANCELLED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Enveloppe déjà rappelée ou annulée',
+      });
+    }
+
+    // Marquer comme rappelée
+    envelope.status = 'RECALLED';
+    envelope.dates.cancelledAt = new Date();
+
+    await envelope.save();
+
+    console.log('✅ Enveloppe rappelée');
+
+    // Envoyer notification aux destinataires qui n'ont pas encore signé/approuvé
+    const emailService = require('../services/emailService');
+
+    for (const recipient of envelope.recipients) {
+      if (recipient.status === 'PENDING' || recipient.status === 'SENT' || recipient.status === 'OPENED') {
+        // TODO: Créer un template email pour le recall
+        console.log('  📧 Notification de rappel à', recipient.email);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Enveloppe rappelée avec succès',
+      envelope: {
+        id: envelope._id,
+        status: envelope.status,
+        reason,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Erreur rappel enveloppe:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors du rappel',
       error: error.message,
     });
   }

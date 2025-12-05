@@ -13,7 +13,7 @@ const recipientSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['SIGNER', 'APPROVER', 'CC'],
+      enum: ['SIGNER', 'REVIEWER', 'APPROVER', 'CC'],
       default: 'SIGNER',
     },
 
@@ -46,7 +46,7 @@ const recipientSchema = new mongoose.Schema(
     // Statut
     status: {
       type: String,
-      enum: ['PENDING', 'SENT', 'OPENED', 'SIGNED', 'DECLINED', 'EXPIRED'],
+      enum: ['PENDING', 'SENT', 'OPENED', 'SIGNED', 'APPROVED', 'DECLINED', 'EXPIRED'],
       default: 'PENDING',
     },
 
@@ -54,8 +54,15 @@ const recipientSchema = new mongoose.Schema(
     sentAt: Date,
     openedAt: Date,
     signedAt: Date,
+    approvedAt: Date,
     declinedAt: Date,
     declineReason: String,
+
+    // Action effectuée (pour différencier sign/approve)
+    action: {
+      type: String,
+      enum: ['SIGN', 'APPROVE', 'REJECT'],
+    },
 
     // Métadonnées de signature
     signatureMetadata: {
@@ -169,7 +176,7 @@ const envelopeSchema = new mongoose.Schema(
     // Statut global
     status: {
       type: String,
-      enum: ['DRAFT', 'SENT', 'IN_PROGRESS', 'COMPLETED', 'DECLINED', 'EXPIRED', 'CANCELLED'],
+      enum: ['DRAFT', 'SENT', 'IN_PROGRESS', 'COMPLETED', 'DECLINED', 'EXPIRED', 'CANCELLED', 'RECALLED'],
       default: 'DRAFT',
     },
 

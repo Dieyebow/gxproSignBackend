@@ -36,7 +36,14 @@ router.post('/:id/send', authenticate, requireUser, envelopeController.sendEnvel
 // Annuler une enveloppe
 router.post('/:id/cancel', authenticate, requireUser, envelopeController.cancelEnvelope);
 
+// Rappeler une enveloppe (retirer pour modification)
+router.post('/:id/recall', authenticate, requireUser, envelopeController.recallEnvelope);
+
 // Supprimer une enveloppe
 router.delete('/:id', authenticate, requireUser, envelopeController.deleteEnvelope);
+
+// Routes publiques (avec token) pour approve/reject
+router.post('/approve/:token', envelopeController.approveDocument);
+router.post('/reject/:token', envelopeController.rejectDocument);
 
 module.exports = router;

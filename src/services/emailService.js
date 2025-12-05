@@ -384,6 +384,84 @@ class EmailService {
       }] : [],
     });
   }
+
+  /**
+   * Email de demande de révision (pour REVIEWER)
+   */
+  async sendReviewRequestEmail({
+    recipientEmail,
+    recipientName,
+    senderName,
+    documentTitle,
+    description,
+    message,
+    reviewToken,
+    expiresAt,
+  }) {
+    const reviewUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/review/${reviewToken}`;
+
+    return this.sendEmail({
+      to: recipientEmail,
+      subject: `${senderName} vous demande de réviser un document`,
+      template: 'review-request',
+      data: {
+        recipientEmail,
+        recipientName,
+        senderName,
+        documentTitle,
+        description,
+        message,
+        reviewUrl,
+        expiresAt: expiresAt ? new Date(expiresAt).toLocaleDateString('fr-FR', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }) : null,
+      },
+    });
+  }
+
+  /**
+   * Email de demande d'approbation finale (pour APPROVER)
+   */
+  async sendApprovalRequestEmail({
+    recipientEmail,
+    recipientName,
+    senderName,
+    documentTitle,
+    description,
+    message,
+    approvalToken,
+    expiresAt,
+    reviewStatus,
+  }) {
+    const approvalUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/approve/${approvalToken}`;
+
+    return this.sendEmail({
+      to: recipientEmail,
+      subject: `${senderName} vous demande l'approbation finale d'un document`,
+      template: 'approval-request',
+      data: {
+        recipientEmail,
+        recipientName,
+        senderName,
+        documentTitle,
+        description,
+        message,
+        approvalUrl,
+        reviewStatus,
+        expiresAt: expiresAt ? new Date(expiresAt).toLocaleDateString('fr-FR', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }) : null,
+      },
+    });
+  }
 }
 
 // Export singleton
