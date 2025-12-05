@@ -43,6 +43,7 @@ router.post('/:id/recall', authenticate, requireUser, envelopeController.recallE
 router.delete('/:id', authenticate, requireUser, envelopeController.deleteEnvelope);
 
 // Routes publiques (avec token) pour approve/reject
+router.get('/verify/:token', envelopeController.getEnvelopeByToken);
 router.post('/approve/:token', envelopeController.approveDocument);
 router.post('/reject/:token', envelopeController.rejectDocument);
 

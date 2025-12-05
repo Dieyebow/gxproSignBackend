@@ -956,3 +956,102 @@ exports.recallEnvelope = async (req, res) => {
     });
   }
 };
+
+/**
+ * Récupérer une enveloppe par token (route publique pour review/approve)
+ */
+exports.getEnvelopeByToken = async (req, res) => {
+  try {
+    const { token } = req.params;
+    console.log(`📥 GET /envelopes/verify/${token} - Récupération enveloppe par token`);
+
+    // Chercher l'enveloppe qui contient ce token dans les destinataires
+    const envelope = await Envelope.findOne({ 'recipients.token': token })
+      .populate('documentId')
+      .populate('sender.userId', 'firstName lastName email');
+
+    if (!envelope) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document non trouvé ou token invalide',
+      });
+    }
+
+    // Trouver le destinataire correspondant au token
+    const recipient = envelope.recipients.find((r) => r.token === token);
+
+    if (!recipient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Destinataire non trouvé',
+      });
+    }
+
+    // Vérifier que c'est bien un reviewer ou approver
+    if (recipient.role !== 'REVIEWER' && recipient.role !== 'APPROVER') {
+      return res.status(403).json({
+        success: false,
+        message: 'Ce lien est réservé aux reviewers et approvers',
+      });
+    }
+
+    // Vérifier si déjà approuvé/rejeté
+    if (recipient.status === 'APPROVED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Vous avez déjà approuvé ce document',
+        alreadyProcessed: true,
+      });
+    }
+
+    if (recipient.status === 'DECLINED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Vous avez déjà rejeté ce document',
+        alreadyProcessed: true,
+      });
+    }
+
+    // Vérifier l'expiration
+    if (envelope.expiresAt && new Date() > new Date(envelope.expiresAt)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Ce document a expiré',
+        expired: true,
+      });
+    }
+
+    console.log('✅ Enveloppe trouvée:', envelope._id);
+    console.log('📝 Destinataire:', recipient.email, '-', recipient.role);
+
+    return res.status(200).json({
+      success: true,
+      envelope: {
+        _id: envelope._id,
+        title: envelope.title,
+        description: envelope.description,
+        message: envelope.emailMessage,
+        status: envelope.status,
+        createdAt: envelope.createdAt,
+        expiresAt: envelope.expiresAt,
+        documentId: envelope.documentId,
+        sender: envelope.sender,
+      },
+      recipient: {
+        firstName: recipient.firstName,
+        lastName: recipient.lastName,
+        email: recipient.email,
+        role: recipient.role,
+        status: recipient.status,
+        order: recipient.order,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération enveloppe par token:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération du document',
+      error: error.message,
+    });
+  }
+};
