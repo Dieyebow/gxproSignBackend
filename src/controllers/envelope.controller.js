@@ -748,21 +748,46 @@ exports.approveDocument = async (req, res) => {
         console.log('✅ Enveloppe complétée et PDF généré');
       }
     } else {
-      // Si workflow séquentiel et pas encore complété, envoyer au suivant
+      // Si workflow séquentiel et pas encore complété, déterminer qui doit recevoir l'email
       if (envelope.workflow.type === 'SEQUENTIAL') {
-        const nextRecipient = envelope.getNextRecipient();
+        const emailService = require('../services/emailService');
+        const User = require('../models/User');
+        const Client = require('../models/Client');
+
+        const sender = await User.findById(envelope.sender.userId);
+        const senderName = sender ? `${sender.firstName} ${sender.lastName}` : envelope.sender.name || 'GXpro Sign';
+        const client = await Client.findById(envelope.clientId);
+        const clientSubdomain = client ? client.subdomain : null;
+
+        // Vérifier si tous les REVIEWER ont validé (status APPROVED ou SIGNED)
+        const allReviewers = envelope.recipients.filter(r => r.role === 'REVIEWER');
+        const allReviewersValidated = allReviewers.every(r => r.status === 'APPROVED' || r.status === 'SIGNED');
+
+        console.log(`📊 Reviewers validés: ${allReviewers.filter(r => r.status === 'APPROVED' || r.status === 'SIGNED').length}/${allReviewers.length}`);
+
+        let nextRecipient = null;
+
+        if (!allReviewersValidated) {
+          // Il reste des REVIEWER à valider → chercher le prochain REVIEWER en attente
+          nextRecipient = envelope.recipients.find(r =>
+            r.role === 'REVIEWER' &&
+            r.status !== 'APPROVED' &&
+            r.status !== 'SIGNED' &&
+            r.status !== 'DECLINED'
+          );
+          console.log(`📧 Prochain REVIEWER à notifier: ${nextRecipient?.email || 'Aucun'}`);
+        } else {
+          // Tous les REVIEWER ont validé → envoyer à l'APPROVER
+          nextRecipient = envelope.recipients.find(r =>
+            r.role === 'APPROVER' &&
+            r.status !== 'APPROVED' &&
+            r.status !== 'SIGNED' &&
+            r.status !== 'DECLINED'
+          );
+          console.log(`📧 Tous les reviewers validés → Envoi à l'APPROVER: ${nextRecipient?.email || 'Aucun'}`);
+        }
+
         if (nextRecipient) {
-          console.log(`📧 Workflow séquentiel: envoi au prochain destinataire ${nextRecipient.email}`);
-
-          const emailService = require('../services/emailService');
-          const User = require('../models/User');
-          const Client = require('../models/Client');
-
-          const sender = await User.findById(envelope.sender.userId);
-          const senderName = sender ? `${sender.firstName} ${sender.lastName}` : envelope.sender.name || 'GXpro Sign';
-          const client = await Client.findById(envelope.clientId);
-          const clientSubdomain = client ? client.subdomain : null;
-
           // Envoyer l'email approprié selon le rôle
           if (nextRecipient.role === 'REVIEWER') {
             await emailService.sendReviewRequestEmail({
@@ -788,22 +813,15 @@ exports.approveDocument = async (req, res) => {
               expiresAt: envelope.expiresAt,
               clientSubdomain,
             });
-          } else if (nextRecipient.role === 'SIGNER') {
-            await emailService.sendSignatureRequestEmail({
-              recipientEmail: nextRecipient.email,
-              recipientName: `${nextRecipient.firstName} ${nextRecipient.lastName}`,
-              senderName,
-              documentTitle: envelope.title,
-              description: envelope.description || '',
-              message: envelope.emailMessage || 'Merci de signer ce document.',
-              signatureToken: nextRecipient.token,
-              expiresAt: envelope.expiresAt,
-            });
           }
 
           nextRecipient.status = 'SENT';
           nextRecipient.sentAt = new Date();
           await envelope.save();
+
+          console.log(`✅ Email envoyé à ${nextRecipient.email} (${nextRecipient.role})`);
+        } else {
+          console.log('ℹ️ Aucun destinataire suivant trouvé');
         }
       }
     }
