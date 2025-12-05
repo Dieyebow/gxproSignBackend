@@ -747,6 +747,65 @@ exports.approveDocument = async (req, res) => {
 
         console.log('✅ Enveloppe complétée et PDF généré');
       }
+    } else {
+      // Si workflow séquentiel et pas encore complété, envoyer au suivant
+      if (envelope.workflow.type === 'SEQUENTIAL') {
+        const nextRecipient = envelope.getNextRecipient();
+        if (nextRecipient) {
+          console.log(`📧 Workflow séquentiel: envoi au prochain destinataire ${nextRecipient.email}`);
+
+          const emailService = require('../services/emailService');
+          const User = require('../models/User');
+          const Client = require('../models/Client');
+
+          const sender = await User.findById(envelope.sender.userId);
+          const senderName = sender ? `${sender.firstName} ${sender.lastName}` : envelope.sender.name || 'GXpro Sign';
+          const client = await Client.findById(envelope.clientId);
+          const clientSubdomain = client ? client.subdomain : null;
+
+          // Envoyer l'email approprié selon le rôle
+          if (nextRecipient.role === 'REVIEWER') {
+            await emailService.sendReviewRequestEmail({
+              recipientEmail: nextRecipient.email,
+              recipientName: `${nextRecipient.firstName} ${nextRecipient.lastName}`,
+              senderName,
+              documentTitle: envelope.title,
+              description: envelope.description || '',
+              message: envelope.emailMessage || 'Merci de réviser ce document.',
+              reviewToken: nextRecipient.token,
+              expiresAt: envelope.expiresAt,
+              clientSubdomain,
+            });
+          } else if (nextRecipient.role === 'APPROVER') {
+            await emailService.sendApprovalRequestEmail({
+              recipientEmail: nextRecipient.email,
+              recipientName: `${nextRecipient.firstName} ${nextRecipient.lastName}`,
+              senderName,
+              documentTitle: envelope.title,
+              description: envelope.description || '',
+              message: envelope.emailMessage || 'Merci d\'approuver ce document.',
+              approvalToken: nextRecipient.token,
+              expiresAt: envelope.expiresAt,
+              clientSubdomain,
+            });
+          } else if (nextRecipient.role === 'SIGNER') {
+            await emailService.sendSignatureRequestEmail({
+              recipientEmail: nextRecipient.email,
+              recipientName: `${nextRecipient.firstName} ${nextRecipient.lastName}`,
+              senderName,
+              documentTitle: envelope.title,
+              description: envelope.description || '',
+              message: envelope.emailMessage || 'Merci de signer ce document.',
+              signatureToken: nextRecipient.token,
+              expiresAt: envelope.expiresAt,
+            });
+          }
+
+          nextRecipient.status = 'SENT';
+          nextRecipient.sentAt = new Date();
+          await envelope.save();
+        }
+      }
     }
 
     return res.status(200).json({
