@@ -48,17 +48,26 @@
     .btn {
       display: inline-block;
       padding: 14px 32px;
+      background-color: #667eea;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: #ffffff;
+      color: #ffffff !important;
       text-decoration: none;
       border-radius: 6px;
       font-weight: 600;
       font-size: 16px;
       margin: 20px 0;
       transition: transform 0.2s;
+      /* Support pour les clients email qui ignorent les gradients */
+      mso-hide: none;
     }
     .btn:hover {
       transform: translateY(-2px);
+      opacity: 0.9;
+    }
+    /* Assurer la visibilité sur fond blanc en cas de problème de gradient */
+    a.btn {
+      color: #ffffff !important;
+      text-decoration: none !important;
     }
     .info-box {
       background-color: #f8f9fa;

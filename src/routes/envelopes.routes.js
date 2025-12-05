@@ -15,6 +15,18 @@ router.post('/', authenticate, requireUser, envelopeController.createEnvelope);
 // Récupérer toutes les enveloppes
 router.get('/', authenticate, requireUser, envelopeController.getEnvelopes);
 
+// Télécharger le PDF signé (doit être avant /:id pour éviter les conflits de routing)
+router.get('/:id/download', (req, res, next) => {
+  console.log('\n🎯 ROUTE DOWNLOAD MATCHED!');
+  console.log('  Path:', req.path);
+  console.log('  Params:', req.params);
+  console.log('  Headers auth:', req.headers.authorization ? 'Présent' : 'ABSENT');
+  next();
+}, authenticate, requireUser, envelopeController.downloadSignedPDF);
+
+// Récupérer les détails complets d'une enveloppe (avec signatures et champs)
+router.get('/:id/details', authenticate, requireUser, envelopeController.getEnvelopeDetails);
+
 // Récupérer une enveloppe par ID
 router.get('/:id', authenticate, requireUser, envelopeController.getEnvelopeById);
 

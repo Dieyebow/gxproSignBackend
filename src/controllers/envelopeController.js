@@ -226,6 +226,21 @@ const getEnvelopeById = async (req, res) => {
       });
     }
 
+    console.log('\n📋 [GET ENVELOPE] Détails de l\'enveloppe:');
+    console.log('  ID:', envelope._id);
+    console.log('  Title:', envelope.title);
+    console.log('  DocumentId présent:', !!envelope.documentId);
+    if (envelope.documentId) {
+      console.log('  Document.file présent:', !!envelope.documentId.file);
+      if (envelope.documentId.file) {
+        console.log('  Document.file.fileUrl:', envelope.documentId.file.fileUrl);
+      } else {
+        console.log('  ⚠️  Document.file est undefined/null');
+      }
+    } else {
+      console.log('  ⚠️  DocumentId est undefined/null');
+    }
+
     // Vérifier l'accès
     if (req.user.role !== 'SUPER_ADMIN') {
       if (envelope.clientId._id.toString() !== req.user.clientId.toString()) {
@@ -407,10 +422,120 @@ const resendInvitation = async (req, res) => {
   }
 };
 
+/**
+ * Obtenir les détails d'une enveloppe
+ */
+const getEnvelopeDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log('📥 GET /envelopes/:id - Récupération détails enveloppe');
+    console.log('  Envelope ID:', id);
+
+    const envelope = await Envelope.findById(id)
+      .populate('documentId')
+      .populate('sender.userId', 'firstName lastName email');
+
+    if (!envelope) {
+      return res.status(404).json({
+        success: false,
+        message: 'Enveloppe non trouvée',
+      });
+    }
+
+    // Vérifier les permissions
+    if (envelope.clientId.toString() !== req.user.clientId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès refusé à cette enveloppe',
+      });
+    }
+
+    // Récupérer les signatures et les champs
+    const Signature = require('../models/Signature');
+    const Field = require('../models/Field');
+    const signatures = await Signature.find({ envelopeId: envelope._id });
+    const fields = await Field.find({ envelopeId: envelope._id });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        envelope,
+        signatures,
+        fields,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération détails enveloppe:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération des détails',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Télécharger le PDF signé d'une enveloppe
+ */
+const downloadSignedPDF = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log('📥 GET /envelopes/:id/download - Téléchargement PDF signé');
+    console.log('  Envelope ID:', id);
+
+    const envelope = await Envelope.findById(id).populate('documentId');
+
+    if (!envelope) {
+      return res.status(404).json({
+        success: false,
+        message: 'Enveloppe non trouvée',
+      });
+    }
+
+    // Vérifier les permissions
+    if (envelope.clientId.toString() !== req.user.clientId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès refusé à cette enveloppe',
+      });
+    }
+
+    // Vérifier que l'enveloppe est complétée
+    if (envelope.status !== 'COMPLETED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Le document n\'est pas encore entièrement signé',
+      });
+    }
+
+    // Vérifier que le PDF signé existe
+    if (!envelope.signedDocument || !envelope.signedDocument.fileUrl) {
+      return res.status(404).json({
+        success: false,
+        message: 'PDF signé non disponible',
+      });
+    }
+
+    // Rediriger vers l'URL du PDF signé (dans Digital Ocean Spaces ou autre)
+    return res.redirect(envelope.signedDocument.fileUrl);
+  } catch (error) {
+    console.error('❌ Erreur téléchargement PDF signé:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors du téléchargement du PDF',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createEnvelope,
   getAllEnvelopes,
   getEnvelopeById,
   cancelEnvelope,
   resendInvitation,
+  getEnvelopeDetails,
+  downloadSignedPDF,
 };

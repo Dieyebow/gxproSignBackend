@@ -10,13 +10,21 @@ const fs = require('fs');
  * Upload et créer un nouveau document
  */
 const uploadDocument = async (req, res) => {
+  const { storageUtils, useSpaces } = require('../config/storage');
+
   try {
+    console.log('📥 [UPLOAD DOCUMENT] Début du traitement');
+
     if (!req.file) {
       return res.status(400).json({
         success: false,
         message: 'Aucun fichier n\'a été fourni.',
       });
     }
+
+    console.log('  ✅ Fichier reçu:', req.file.originalname);
+    console.log('  Chemin local:', req.file.path);
+    console.log('  Taille:', req.file.size, 'bytes');
 
     const { title, description, folder, tags, isTemplate } = req.body;
 
@@ -26,8 +34,10 @@ const uploadDocument = async (req, res) => {
       : req.user.clientId;
 
     if (!clientId) {
-      // Supprimer le fichier uploadé
-      fs.unlinkSync(req.file.path);
+      // Supprimer le fichier temporaire
+      if (req.file.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
       return res.status(400).json({
         success: false,
         message: 'Client ID requis.',
@@ -37,7 +47,10 @@ const uploadDocument = async (req, res) => {
     // Vérifier que le client existe
     const client = await Client.findById(clientId);
     if (!client) {
-      fs.unlinkSync(req.file.path);
+      // Supprimer le fichier temporaire
+      if (req.file.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
       return res.status(404).json({
         success: false,
         message: 'Client non trouvé.',
@@ -53,11 +66,64 @@ const uploadDocument = async (req, res) => {
     });
 
     if (currentMonthDocs >= client.limits.maxDocumentsPerMonth) {
-      fs.unlinkSync(req.file.path);
+      // Supprimer le fichier temporaire
+      if (req.file.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
       return res.status(403).json({
         success: false,
         message: `Limite mensuelle de documents atteinte (${client.limits.maxDocumentsPerMonth}).`,
       });
+    }
+
+    // Préparer les données de fichier
+    let fileUrl, filename, spacesKey = null;
+
+    if (useSpaces) {
+      console.log('📤 [UPLOAD DOCUMENT] Transfert vers Spaces...');
+
+      // Générer la clé pour Spaces
+      const date = new Date();
+      const folder = `${clientId}/${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      spacesKey = `${folder}/${req.file.filename}`;
+
+      try {
+        // Transférer vers Spaces
+        const uploadResult = await storageUtils.uploadToSpaces(
+          req.file.path,
+          spacesKey,
+          req.file.mimetype
+        );
+
+        if (uploadResult) {
+          fileUrl = uploadResult.location;
+          filename = uploadResult.key;
+          console.log('  ✅ Fichier transféré vers Spaces');
+          console.log('  URL:', fileUrl);
+
+          // Supprimer le fichier temporaire local
+          await storageUtils.deleteLocalFile(req.file.path);
+          console.log('  ✅ Fichier temporaire supprimé');
+        } else {
+          throw new Error('Upload vers Spaces a échoué');
+        }
+      } catch (error) {
+        console.error('❌ Erreur lors du transfert vers Spaces:', error);
+        // Supprimer le fichier temporaire
+        if (req.file.path && fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+        return res.status(500).json({
+          success: false,
+          message: 'Erreur lors du transfert vers le stockage cloud.',
+          error: error.message,
+        });
+      }
+    } else {
+      // Stockage local uniquement
+      console.log('💾 [UPLOAD DOCUMENT] Stockage local uniquement');
+      fileUrl = `/uploads/${clientId}/${req.file.filename}`;
+      filename = req.file.filename;
     }
 
     // Créer le document
@@ -68,8 +134,8 @@ const uploadDocument = async (req, res) => {
       description,
       file: {
         originalName: req.file.originalname,
-        filename: req.file.filename,
-        fileUrl: `/uploads/${clientId}/${req.file.filename}`,
+        filename: filename,
+        fileUrl: fileUrl,
         fileSize: req.file.size,
         mimeType: req.file.mimetype,
       },
@@ -116,11 +182,18 @@ const uploadDocument = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Erreur uploadDocument:', error);
+    console.error('❌ [UPLOAD DOCUMENT] Erreur:', error);
+    console.error('  Message:', error.message);
+    console.error('  Stack:', error.stack);
 
-    // Supprimer le fichier en cas d'erreur
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+    // Supprimer le fichier temporaire en cas d'erreur
+    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+        console.log('  ✅ Fichier temporaire nettoyé');
+      } catch (cleanupError) {
+        console.error('  ⚠️  Erreur lors du nettoyage:', cleanupError.message);
+      }
     }
 
     return res.status(500).json({

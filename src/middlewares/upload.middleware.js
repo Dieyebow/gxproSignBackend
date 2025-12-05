@@ -1,40 +1,14 @@
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
+const { getStorageConfig } = require('../config/storage');
 
 /**
  * Configuration Multer pour l'upload de fichiers
+ * Utilise Digital Ocean Spaces ou stockage local selon la configuration
  */
 
-// Créer le dossier uploads s'il n'existe pas
-const uploadDir = path.join(__dirname, '../../uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// Configuration du stockage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // Organiser par client
-    const clientId = req.user?.clientId || 'public';
-    const clientDir = path.join(uploadDir, clientId.toString());
-
-    if (!fs.existsSync(clientDir)) {
-      fs.mkdirSync(clientDir, { recursive: true });
-    }
-
-    cb(null, clientDir);
-  },
-  filename: (req, file, cb) => {
-    // Générer un nom de fichier unique
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    const basename = path.basename(file.originalname, ext);
-    const filename = `${basename}-${uniqueSuffix}${ext}`;
-
-    cb(null, filename);
-  },
-});
+// Utiliser la configuration centralisée de stockage
+const storage = getStorageConfig();
 
 // Filtre pour accepter uniquement les PDF
 const fileFilter = (req, file, cb) => {
@@ -75,8 +49,19 @@ const uploadMultiple = upload.array('files', 10); // Max 10 fichiers
  */
 const handleUploadError = (uploadMiddleware) => {
   return (req, res, next) => {
+    console.log('🔧 [UPLOAD MIDDLEWARE] Début de l\'upload');
+    console.log('  req.headers:', req.headers);
+    console.log('  Content-Type:', req.get('content-type'));
+
     uploadMiddleware(req, res, (err) => {
+      console.log('🔧 [UPLOAD MIDDLEWARE] Callback appelé');
+      console.log('  err:', err);
+      console.log('  req.file:', req.file);
+      console.log('  req.files:', req.files);
+
       if (err instanceof multer.MulterError) {
+        console.error('❌ [UPLOAD MIDDLEWARE] Erreur Multer:', err.code, err.message);
+        console.error('  Erreur complète:', err);
         // Erreur Multer
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(400).json({
@@ -95,13 +80,22 @@ const handleUploadError = (uploadMiddleware) => {
           message: `Erreur d'upload : ${err.message}`,
         });
       } else if (err) {
+        console.error('❌ [UPLOAD MIDDLEWARE] Erreur:', err);
+        console.error('  Type:', err.constructor.name);
+        console.error('  Message:', err.message);
+        console.error('  Stack:', err.stack);
+        console.error('  Code:', err.code);
+        console.error('  Errno:', err.errno);
         // Autre erreur (ex: type de fichier non autorisé)
         return res.status(400).json({
           success: false,
-          message: err.message,
+          message: err.message || 'Erreur lors de l\'upload',
+          error: err.toString(),
         });
       }
 
+      console.log('✅ [UPLOAD MIDDLEWARE] Upload réussi');
+      console.log('  req.file:', JSON.stringify(req.file, null, 2));
       // Pas d'erreur, continuer
       next();
     });
@@ -112,12 +106,19 @@ const handleUploadError = (uploadMiddleware) => {
  * Middleware pour vérifier qu'un fichier a été uploadé
  */
 const requireFile = (req, res, next) => {
+  console.log('🔧 [REQUIRE FILE] Vérification du fichier');
+  console.log('  req.file:', req.file);
+  console.log('  req.files:', req.files);
+
   if (!req.file && !req.files) {
+    console.error('❌ [REQUIRE FILE] Aucun fichier trouvé');
     return res.status(400).json({
       success: false,
       message: 'Aucun fichier n\'a été fourni.',
     });
   }
+
+  console.log('✅ [REQUIRE FILE] Fichier trouvé');
   next();
 };
 

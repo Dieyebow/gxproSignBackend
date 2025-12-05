@@ -2,6 +2,26 @@ const Field = require('../models/Field');
 const Envelope = require('../models/Envelope');
 
 /**
+ * Helper function to get field color based on type
+ */
+function getFieldColor(type) {
+  const colorMap = {
+    SIGNATURE: 'blue',
+    INITIAL: 'purple',
+    TEXT: 'green',
+    DATE: 'orange',
+    EMAIL: 'teal',
+    NAME: 'indigo',
+    CHECKBOX: 'gray',
+    NUMBER: 'red',
+    PHONE: 'pink',
+    COMPANY: 'cyan',
+    TITLE: 'lime',
+  };
+  return colorMap[type] || 'gray';
+}
+
+/**
  * Get fields for an envelope
  * GET /fields?envelopeId=xxx
  */
@@ -48,9 +68,50 @@ const getFields = async (req, res) => {
 
     console.log('✅ Accès autorisé');
     console.log('🔍 Recherche des champs...');
-    const fields = await Field.find({ envelopeId }).sort({ page: 1, 'position.y': 1 });
+    const fieldsFromDb = await Field.find({ envelopeId }).sort({ 'position.page': 1, 'position.y': 1 });
 
-    console.log(`✅ ${fields.length} champ(s) trouvé(s)`);
+    console.log(`✅ ${fieldsFromDb.length} champ(s) trouvé(s)`);
+
+    // Transform fields to frontend format
+    const fields = fieldsFromDb.map(field => {
+      // Find recipient name
+      const recipient = envelope.recipients?.find(r => r.id === field.recipientId);
+
+      console.log('📦 Field from DB:', {
+        id: field._id,
+        type: field.type,
+        position: field.position,
+      });
+
+      const transformed = {
+        id: field._id,
+        envelopeId: field.envelopeId,
+        documentId: field.documentId,
+        recipientId: field.recipientId,
+        recipientName: recipient ? `${recipient.firstName} ${recipient.lastName}` : 'Unknown',
+        type: field.type,
+        label: field.properties?.label || field.type,
+        page: field.position.page,
+        x: field.position.x,
+        y: field.position.y,
+        width: field.position.width,
+        height: field.position.height,
+        required: field.properties?.required || false,
+        value: field.value,
+        color: getFieldColor(field.type),
+      };
+
+      console.log('🔄 Transformed to frontend:', {
+        id: transformed.id,
+        x: transformed.x,
+        y: transformed.y,
+        width: transformed.width,
+        height: transformed.height,
+      });
+
+      return transformed;
+    });
+
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
     res.json({
@@ -150,12 +211,19 @@ const bulkCreateFields = async (req, res) => {
 
     // Verify all fields belong to the same envelope
     const envelopeId = fields[0].envelopeId;
-    const envelope = await Envelope.findById(envelopeId);
+    const envelope = await Envelope.findById(envelopeId).populate('documentId');
 
     if (!envelope) {
       return res.status(404).json({
         success: false,
         message: 'Enveloppe non trouvée',
+      });
+    }
+
+    if (!envelope.documentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'L\'enveloppe n\'a pas de document associé',
       });
     }
 
@@ -169,18 +237,55 @@ const bulkCreateFields = async (req, res) => {
     // Delete existing fields for this envelope
     await Field.deleteMany({ envelopeId });
 
-    // Create new fields
-    const createdFields = await Field.insertMany(
-      fields.map((f) => ({
-        envelopeId: f.envelopeId,
-        recipientId: f.recipientId,
+    // Get documentId from envelope
+    const documentId = envelope.documentId;
+
+    console.log('\n📥 Fields received from frontend:');
+    fields.forEach((f, idx) => {
+      console.log(`  Field ${idx + 1}:`, {
         type: f.type,
-        label: f.label || f.type,
         page: f.page,
         position: f.position,
-        validation: f.validation || { required: true },
-        status: 'EMPTY',
-      }))
+        x: f.x,
+        y: f.y,
+        width: f.width,
+        height: f.height,
+      });
+    });
+
+    // Create new fields
+    const createdFields = await Field.insertMany(
+      fields.map((f) => {
+        const fieldToCreate = {
+          envelopeId: f.envelopeId,
+          documentId: documentId,
+          recipientId: f.recipientId,
+          type: f.type,
+          position: {
+            page: f.page || f.position?.page || 1,
+            x: f.position?.x || f.x || 0,
+            y: f.position?.y || f.y || 0,
+            width: f.position?.width || f.width || 100,
+            height: f.position?.height || f.height || 30,
+          },
+          properties: {
+            label: f.label || f.type,
+            required: f.validation?.required || f.required || true,
+            validation: f.validation,
+            fontSize: f.fontSize || 12,
+            fontFamily: f.fontFamily || 'Helvetica',
+            fontColor: f.fontColor || '#000000',
+          },
+          tabOrder: f.tabOrder || 0,
+        };
+
+        console.log('💾 Saving field to DB:', {
+          type: fieldToCreate.type,
+          position: fieldToCreate.position,
+        });
+
+        return fieldToCreate;
+      })
     );
 
     res.status(201).json({

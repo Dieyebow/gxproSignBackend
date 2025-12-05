@@ -1,6 +1,7 @@
 const Envelope = require('../models/Envelope');
 const Document = require('../models/Document');
 const Field = require('../models/Field');
+const User = require('../models/User');
 const { v4: uuidv4 } = require('uuid');
 
 /**
@@ -159,7 +160,7 @@ exports.getEnvelopeById = async (req, res) => {
 
     console.log('🔍 Recherche de l\'enveloppe dans MongoDB...');
     const envelope = await Envelope.findById(id)
-      .populate('documentId');
+      .populate('documentId', 'title description file');
 
     console.log('📦 Résultat de la requête:', envelope ? 'Enveloppe trouvée' : 'Enveloppe NON trouvée');
 
@@ -178,6 +179,18 @@ exports.getEnvelopeById = async (req, res) => {
     console.log('  - Status:', envelope.status);
     console.log('  - ClientId:', envelope.clientId?.toString());
     console.log('  - DocumentId:', envelope.documentId?._id || envelope.documentId);
+    console.log('  - Document présent:', !!envelope.documentId);
+    if (envelope.documentId) {
+      console.log('  - Document.title:', envelope.documentId.title);
+      console.log('  - Document.file présent:', !!envelope.documentId.file);
+      if (envelope.documentId.file) {
+        console.log('  - Document.file.fileUrl:', envelope.documentId.file.fileUrl);
+      } else {
+        console.log('  ⚠️  Document.file est undefined/null!');
+      }
+    } else {
+      console.log('  ⚠️  DocumentId est undefined/null!');
+    }
 
     // Vérifier l'accès
     console.log('🔐 Vérification d\'accès...');
@@ -193,13 +206,25 @@ exports.getEnvelopeById = async (req, res) => {
       });
     }
 
-    console.log('✅ Accès autorisé - Envoi de la réponse');
+    console.log('✅ Accès autorisé');
+
+    // Récupérer aussi les signatures et les champs pour affichage complet
+    const Signature = require('../models/Signature');
+    const Field = require('../models/Field');
+
+    const signatures = await Signature.find({ envelopeId: envelope._id });
+    const fields = await Field.find({ envelopeId: envelope._id });
+
+    console.log(`📝 Signatures trouvées: ${signatures.length}`);
+    console.log(`📋 Champs trouvés: ${fields.length}`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
     return res.status(200).json({
       success: true,
       data: {
         envelope,
+        signatures,
+        fields,
       },
     });
   } catch (error) {
@@ -270,19 +295,43 @@ exports.sendEnvelope = async (req, res) => {
     // Marquer comme envoyé
     await envelope.markAsSent();
 
-    // TODO: Envoyer les emails aux destinataires
-    // Pour l'instant on logge juste
+    // Envoyer les emails aux destinataires
+    const emailService = require('../services/emailService');
+    const sender = await User.findById(envelope.sender.userId);
+    const senderName = sender ? `${sender.firstName} ${sender.lastName}` : envelope.sender.name || 'GXpro Sign';
+
     if (envelope.workflow.type === 'SEQUENTIAL') {
+      // Workflow séquentiel : envoyer seulement au premier signataire
       const firstRecipient = envelope.recipients.find((r) => r.order === 1);
-      console.log(`📧 Email à envoyer à: ${firstRecipient.email}`);
-      console.log(`🔗 Lien: ${process.env.FRONTEND_URL}/sign/${firstRecipient.token}`);
-    } else {
-      envelope.recipients
-        .filter((r) => r.role === 'SIGNER')
-        .forEach((r) => {
-          console.log(`📧 Email à envoyer à: ${r.email}`);
-          console.log(`🔗 Lien: ${process.env.FRONTEND_URL}/sign/${r.token}`);
+      if (firstRecipient && firstRecipient.role === 'SIGNER') {
+        console.log(`📧 Envoi email à: ${firstRecipient.email}`);
+        await emailService.sendSignatureRequestEmail({
+          recipientEmail: firstRecipient.email,
+          recipientName: `${firstRecipient.firstName} ${firstRecipient.lastName}`,
+          senderName,
+          documentTitle: envelope.title,
+          description: envelope.description || '',
+          message: envelope.emailMessage || 'Merci de signer ce document.',
+          signatureToken: firstRecipient.token,
+          expiresAt: envelope.expiresAt,
         });
+      }
+    } else {
+      // Workflow parallèle : envoyer à tous les signataires
+      const signers = envelope.recipients.filter((r) => r.role === 'SIGNER');
+      for (const signer of signers) {
+        console.log(`📧 Envoi email à: ${signer.email}`);
+        await emailService.sendSignatureRequestEmail({
+          recipientEmail: signer.email,
+          recipientName: `${signer.firstName} ${signer.lastName}`,
+          senderName,
+          documentTitle: envelope.title,
+          description: envelope.description || '',
+          message: envelope.emailMessage || 'Merci de signer ce document.',
+          signatureToken: signer.token,
+          expiresAt: envelope.expiresAt,
+        });
+      }
     }
 
     console.log('✅ Enveloppe envoyée avec succès');
@@ -403,6 +452,133 @@ exports.deleteEnvelope = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Erreur lors de la suppression de l\'enveloppe',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Obtenir les détails d'une enveloppe
+ */
+exports.getEnvelopeDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log('📥 GET /envelopes/:id - Récupération détails enveloppe');
+    console.log('  Envelope ID:', id);
+
+    const envelope = await Envelope.findById(id)
+      .populate('documentId')
+      .populate('sender.userId', 'firstName lastName email');
+
+    if (!envelope) {
+      return res.status(404).json({
+        success: false,
+        message: 'Enveloppe non trouvée',
+      });
+    }
+
+    // Vérifier les permissions
+    if (envelope.clientId.toString() !== req.user.clientId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès refusé à cette enveloppe',
+      });
+    }
+
+    // Récupérer les signatures et les champs
+    const Signature = require('../models/Signature');
+    const signatures = await Signature.find({ envelopeId: envelope._id });
+    const fields = await Field.find({ envelopeId: envelope._id });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        envelope,
+        signatures,
+        fields,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération détails enveloppe:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération des détails',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Télécharger le PDF signé d'une enveloppe
+ */
+exports.downloadSignedPDF = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📥 DOWNLOAD PDF SIGNÉ - Route appelée');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📍 Route complète:', req.method, req.path);
+    console.log('📍 URL complète:', req.originalUrl);
+    console.log('📍 Envelope ID:', id);
+    console.log('👤 User présent:', !!req.user);
+    if (req.user) {
+      console.log('   - User ID:', req.user._id);
+      console.log('   - Email:', req.user.email);
+      console.log('   - ClientId:', req.user.clientId);
+    } else {
+      console.log('   ❌ PAS D\'UTILISATEUR - req.user est undefined!');
+    }
+    console.log('🔑 Authorization header:', req.headers.authorization ? 'Présent' : '❌ ABSENT');
+    console.log('🌐 Origin:', req.headers.origin);
+    console.log('🌐 Host:', req.headers.host);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+    const envelope = await Envelope.findById(id).populate('documentId');
+
+    if (!envelope) {
+      return res.status(404).json({
+        success: false,
+        message: 'Enveloppe non trouvée',
+      });
+    }
+
+    // Vérifier les permissions
+    if (envelope.clientId.toString() !== req.user.clientId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès refusé à cette enveloppe',
+      });
+    }
+
+    // Vérifier que l'enveloppe est complétée
+    if (envelope.status !== 'COMPLETED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Le document n\'est pas encore entièrement signé',
+      });
+    }
+
+    // Vérifier que le PDF signé existe
+    if (!envelope.signedDocument || !envelope.signedDocument.fileUrl) {
+      return res.status(404).json({
+        success: false,
+        message: 'PDF signé non disponible',
+      });
+    }
+
+    // Renvoyer l'URL du PDF signé pour que le frontend puisse l'ouvrir
+    return res.status(200).json({
+      success: true,
+      url: envelope.signedDocument.fileUrl,
+      filename: envelope.signedDocument.filename,
+    });
+  } catch (error) {
+    console.error('❌ Erreur téléchargement PDF signé:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors du téléchargement du PDF',
       error: error.message,
     });
   }

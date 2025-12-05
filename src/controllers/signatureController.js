@@ -62,10 +62,24 @@ const getSignatureInfo = async (req, res) => {
     }
 
     // Récupérer les champs à remplir pour ce destinataire
-    const fields = await Field.find({
-      documentId: envelope.documentId._id,
-      assignedTo: recipient.email,
+    const fieldsFromDb = await Field.find({
+      envelopeId: envelope._id,
+      recipientId: recipient.recipientId,
     });
+
+    // Transform fields to frontend format
+    const fields = fieldsFromDb.map(field => ({
+      id: field._id,
+      type: field.type,
+      label: field.properties?.label || field.type,
+      page: field.position.page,
+      x: field.position.x,
+      y: field.position.y,
+      width: field.position.width,
+      height: field.position.height,
+      required: field.properties?.required || false,
+      value: field.value,
+    }));
 
     // Marquer comme ouvert si ce n'est pas déjà fait
     if (recipient.status === 'SENT') {
@@ -98,25 +112,33 @@ const getSignatureInfo = async (req, res) => {
       });
     }
 
+    // Récupérer les infos du sender
+    const sender = await User.findById(envelope.sender.userId);
+    const senderName = sender ? `${sender.firstName} ${sender.lastName}` : envelope.sender.name || 'Unknown';
+
     return res.status(200).json({
       success: true,
       data: {
         envelope: {
           id: envelope._id,
-          message: envelope.message,
-          expiresAt: envelope.expiresAt,
+          title: envelope.title,
+          message: envelope.emailMessage || envelope.message,
+          expiresAt: envelope.dates?.expiresAt,
         },
         document: {
           id: envelope.documentId._id,
           title: envelope.documentId.title,
           description: envelope.documentId.description,
-          fileUrl: envelope.documentId.file.fileUrl,
+          file: {
+            fileUrl: envelope.documentId.file.fileUrl,
+          },
         },
         recipient: {
           firstName: recipient.firstName,
           lastName: recipient.lastName,
           email: recipient.email,
           role: recipient.role,
+          senderName,
         },
         fields,
       },
@@ -139,10 +161,24 @@ const signDocument = async (req, res) => {
     const { token } = req.params;
     const { signatureData, fields } = req.body;
 
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📝 [SIGN DOCUMENT] Début de signature');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📍 Token:', token);
+    console.log('\n📦 Body reçu du frontend:');
+    console.log('  - signatureData:', JSON.stringify(signatureData, null, 2));
+    console.log('  - fields count:', fields?.length);
+    if (fields && fields.length > 0) {
+      console.log('  - Premier field:', JSON.stringify(fields[0], null, 2));
+      console.log('  - Tous les fieldIds:', fields.map(f => f.fieldId));
+    }
+
     // Trouver l'enveloppe
     const envelope = await Envelope.findOne({
       'recipients.token': token,
     }).populate('documentId');
+
+    console.log('  Enveloppe trouvée:', envelope ? envelope._id : 'Non trouvée');
 
     if (!envelope) {
       return res.status(404).json({
@@ -152,6 +188,7 @@ const signDocument = async (req, res) => {
     }
 
     const recipient = envelope.getRecipientByToken(token);
+    console.log('  Recipient trouvé:', recipient ? recipient.email : 'Non trouvé');
 
     if (!recipient) {
       return res.status(404).json({
@@ -175,32 +212,54 @@ const signDocument = async (req, res) => {
       });
     }
 
-    // Créer la signature
-    const signature = await Signature.create({
+    console.log('\n🔨 Création de la signature...');
+    console.log('  - recipientId:', recipient.recipientId);
+    console.log('  - clientId:', envelope.clientId);
+    console.log('  - signatureData.method:', signatureData.method);
+    console.log('  - signatureData.data length:', signatureData.data?.length);
+
+    const signatureObject = {
       envelopeId: envelope._id,
-      documentId: envelope.documentId._id,
-      clientId: envelope.clientId,
+      recipientId: recipient.recipientId,
+      clientId: envelope.clientId, // REQUIS par le modèle Signature
       signer: {
         firstName: recipient.firstName,
         lastName: recipient.lastName,
         email: recipient.email,
-        phone: recipient.phone,
       },
-      signatureMethod: signatureData.method,
-      signatureData: {
-        type: signatureData.method,
-        data: signatureData.data,
+      signature: {
+        method: signatureData.method === 'DRAWN' ? 'DRAW' : signatureData.method,
+        imageUrl: signatureData.data, // Base64 data URL
+        imageData: signatureData.data, // Backup
       },
       metadata: {
         ipAddress: req.ip,
         userAgent: req.get('user-agent'),
         geolocation: req.body.geolocation,
         deviceType: req.get('user-agent')?.includes('Mobile') ? 'MOBILE' : 'DESKTOP',
+        timestamp: new Date(),
       },
-      consentGiven: true,
-      consentText: 'J\'accepte de signer ce document électroniquement.',
-      consentTimestamp: new Date(),
-    });
+      consent: {
+        agreed: true,
+        agreedAt: new Date(),
+        consentText: 'J\'accepte de signer ce document électroniquement.',
+      },
+    };
+
+    console.log('\n📋 Objet signature à créer:');
+    console.log(JSON.stringify({
+      ...signatureObject,
+      signature: {
+        ...signatureObject.signature,
+        imageData: `[Base64 ${signatureObject.signature.imageData?.length} chars]`,
+        imageUrl: `[Base64 ${signatureObject.signature.imageUrl?.length} chars]`,
+      }
+    }, null, 2));
+
+    // Créer la signature selon le schéma Signature
+    const signature = await Signature.create(signatureObject);
+
+    console.log('✅ Signature créée avec succès:', signature._id);
 
     // Mettre à jour les champs si fournis
     if (fields && fields.length > 0) {
@@ -248,6 +307,19 @@ const signDocument = async (req, res) => {
       },
     });
 
+    // Envoyer email de confirmation au signataire qui vient de signer
+    const sender = await User.findById(envelope.sender.userId);
+    const senderName = sender ? `${sender.firstName} ${sender.lastName}` : envelope.sender.name;
+
+    console.log(`📧 Envoi email de confirmation à: ${recipient.email}`);
+    await emailService.sendSignatureConfirmationEmail({
+      recipientEmail: recipient.email,
+      recipientName: `${recipient.firstName} ${recipient.lastName}`,
+      senderName,
+      documentTitle: envelope.documentId.title,
+      signedAt: new Date(),
+    });
+
     // Vérifier si tous ont signé
     const allSigned = envelope.isAllSigned();
 
@@ -278,9 +350,42 @@ const signDocument = async (req, res) => {
         },
       });
 
-      // Envoyer email de confirmation à l'expéditeur
-      const sender = await User.findById(envelope.sender);
+      // Générer le PDF final avec toutes les signatures
+      console.log('📄 Génération du PDF signé final...');
+      const pdfSignatureService = require('../services/pdfSignatureService');
+
+      try {
+        // Récupérer toutes les signatures de cette enveloppe
+        const allSignatures = await Signature.find({ envelopeId: envelope._id });
+
+        // Récupérer tous les champs remplis
+        const allFields = await Field.find({ envelopeId: envelope._id });
+
+        // Générer le PDF signé
+        const signedPdfInfo = await pdfSignatureService.generateSignedPDF({
+          envelope,
+          document: envelope.documentId,
+          signatures: allSignatures,
+          fields: allFields,
+        });
+
+        // Mettre à jour l'enveloppe avec les infos du PDF signé
+        envelope.signedDocument = signedPdfInfo;
+        await envelope.save();
+
+        console.log('✅ PDF signé généré et enregistré');
+      } catch (pdfError) {
+        console.error('❌ Erreur génération PDF signé:', pdfError);
+        // Continue même en cas d'erreur PDF pour ne pas bloquer le reste
+      }
+
+      // Envoyer email de confirmation à l'expéditeur/administrateur
       if (sender) {
+        // Récupérer le client pour avoir le subdomain
+        const Client = require('../models/Client');
+        const client = await Client.findById(envelope.clientId);
+
+        console.log(`📧 Envoi email de complétion à l'administrateur: ${sender.email}`);
         await emailService.sendEnvelopeCompletedEmail({
           senderEmail: sender.email,
           senderName: `${sender.firstName} ${sender.lastName}`,
@@ -288,6 +393,7 @@ const signDocument = async (req, res) => {
           recipients: envelope.recipients.filter(r => r.status === 'SIGNED'),
           completedAt: envelope.completedAt,
           envelopeId: envelope._id,
+          clientSubdomain: client?.subdomain || 'app',
         });
       }
     } else {
@@ -296,7 +402,7 @@ const signDocument = async (req, res) => {
         const nextRecipient = envelope.getNextRecipient();
         if (nextRecipient) {
           // Envoyer email au prochain signataire
-          const sender = await User.findById(envelope.sender);
+          console.log(`📧 Envoi email au prochain signataire: ${nextRecipient.email}`);
           if (sender) {
             await emailService.sendSignatureRequestEmail({
               recipientEmail: nextRecipient.email,
@@ -326,7 +432,9 @@ const signDocument = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Erreur signDocument:', error);
+    console.error('\n❌ [SIGN DOCUMENT] Erreur:', error);
+    console.error('  Message:', error.message);
+    console.error('  Stack:', error.stack);
     return res.status(500).json({
       success: false,
       message: 'Erreur lors de la signature.',

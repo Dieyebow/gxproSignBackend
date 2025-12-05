@@ -8,15 +8,22 @@ const { User } = require('../models');
  */
 const authenticate = async (req, res, next) => {
   try {
+    console.log('🔐 [AUTH MIDDLEWARE] Vérification authentification');
+    console.log('  Route:', req.method, req.path);
+
     // 1. Extraire le token du header
     const authHeader = req.headers.authorization;
+    console.log('  Authorization header:', authHeader ? authHeader.substring(0, 20) + '...' : 'ABSENT');
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.log('  ❌ Pas de token - Rejet');
       return res.status(401).json({
         success: false,
         message: 'Accès refusé. Aucun token fourni.',
       });
     }
+
+    console.log('  ✅ Token présent');
 
     const token = authHeader.substring(7); // Enlever "Bearer "
 
@@ -38,15 +45,20 @@ const authenticate = async (req, res, next) => {
       });
     }
 
+    console.log('  ✅ Token décodé - User ID:', decoded.id);
+
     // 3. Récupérer l'utilisateur
     const user = await User.findById(decoded.id);
 
     if (!user) {
+      console.log('  ❌ Utilisateur non trouvé dans la DB');
       return res.status(401).json({
         success: false,
         message: 'Utilisateur non trouvé.',
       });
     }
+
+    console.log('  ✅ Utilisateur trouvé:', user.email);
 
     // 4. Vérifier si le compte est actif
     if (user.status !== 'ACTIVE') {
@@ -67,6 +79,7 @@ const authenticate = async (req, res, next) => {
 
     // 6. Ajouter l'utilisateur à la requête
     req.user = user;
+    console.log('  ✅ Authentification réussie - Passage au next()');
     next();
   } catch (error) {
     console.error('Erreur middleware auth:', error);

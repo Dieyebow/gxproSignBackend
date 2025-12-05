@@ -84,9 +84,9 @@ const getOverviewStats = async (req, res) => {
     const recentActivity = await AuditLog.find(
       isSuperAdmin ? {} : { clientId }
     )
-      .sort({ createdAt: -1 })
+      .sort({ 'context.timestamp': -1 })
       .limit(10)
-      .populate('userId', 'firstName lastName email')
+      .populate('actor.userId', 'firstName lastName email')
       .lean();
 
     return res.status(200).json({
@@ -106,13 +106,16 @@ const getOverviewStats = async (req, res) => {
         recentActivity: recentActivity.map(log => ({
           id: log._id,
           action: log.action,
-          description: log.description,
-          user: log.userId ? {
-            name: `${log.userId.firstName} ${log.userId.lastName}`,
-            email: log.userId.email,
+          description: log.details?.description || log.action,
+          user: log.actor?.userId ? {
+            name: `${log.actor.userId.firstName} ${log.actor.userId.lastName}`,
+            email: log.actor.userId.email,
+          } : log.actor?.name ? {
+            name: log.actor.name,
+            email: log.actor.email,
           } : null,
-          ipAddress: log.metadata?.ipAddress,
-          timestamp: log.createdAt,
+          ipAddress: log.context?.ipAddress,
+          timestamp: log.context?.timestamp || new Date(),
         })),
       },
     });

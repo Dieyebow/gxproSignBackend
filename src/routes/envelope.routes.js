@@ -155,4 +155,46 @@ router.post('/:id/cancel', authenticate, requireUser, envelopeController.cancelE
  */
 router.post('/:id/resend/:recipientId', authenticate, requireUser, envelopeController.resendInvitation);
 
+/**
+ * @swagger
+ * /api/envelopes/{id}/download:
+ *   get:
+ *     summary: Télécharger le PDF signé
+ *     description: Télécharge le PDF final avec toutes les signatures
+ *     tags: [Envelopes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Redirige vers le PDF signé
+ */
+router.get('/:id/download', authenticate, requireUser, envelopeController.downloadSignedPDF);
+
+/**
+ * @swagger
+ * /api/envelopes/{id}:
+ *   get:
+ *     summary: Obtenir les détails d'une enveloppe
+ *     description: Récupère tous les détails d'une enveloppe incluant signatures et champs
+ *     tags: [Envelopes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Détails de l'enveloppe
+ */
+router.get('/:id', authenticate, requireUser, envelopeController.getEnvelopeDetails);
+
 module.exports = router;

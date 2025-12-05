@@ -112,7 +112,7 @@ const userSchema = new mongoose.Schema(
 );
 
 // Indexes
-userSchema.index({ email: 1 }, { unique: true });
+// Note: email already has unique index from schema definition
 userSchema.index({ clientId: 1, role: 1 });
 userSchema.index({ status: 1 });
 userSchema.index({ resetPasswordToken: 1 }, { sparse: true });

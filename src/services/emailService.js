@@ -101,7 +101,12 @@ class EmailService {
    * Email de bienvenue pour nouveau client
    */
   async sendClientWelcomeEmail({ email, companyName, subdomain, plan, invitationToken, contactPerson }) {
-    const activationUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/activate-account/${invitationToken}`;
+    // Construire l'URL d'activation avec le sous-domaine du client
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const activationUrl = baseUrl.includes('localhost')
+      ? `${baseUrl}/activate-account/${invitationToken}`
+      : `https://${subdomain}.gxprosign.com/activate-account/${invitationToken}`;
+
     const contactName = contactPerson ? `${contactPerson.firstName} ${contactPerson.lastName}` : 'Admin';
 
     return this.sendEmail({
@@ -199,6 +204,35 @@ class EmailService {
   }
 
   /**
+   * Email de confirmation de signature au signataire
+   */
+  async sendSignatureConfirmationEmail({
+    recipientEmail,
+    recipientName,
+    senderName,
+    documentTitle,
+    signedAt,
+  }) {
+    return this.sendEmail({
+      to: recipientEmail,
+      subject: `Confirmation de signature : ${documentTitle}`,
+      template: 'signature-confirmation',
+      data: {
+        recipientName,
+        senderName,
+        documentTitle,
+        signedAt: new Date(signedAt).toLocaleDateString('fr-FR', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+      },
+    });
+  }
+
+  /**
    * Email de document complètement signé
    */
   async sendEnvelopeCompletedEmail({
@@ -208,8 +242,13 @@ class EmailService {
     recipients,
     completedAt,
     envelopeId,
+    clientSubdomain,
   }) {
-    const envelopeUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/envelopes/${envelopeId}`;
+    // Construire l'URL avec le sous-domaine du client
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const envelopeUrl = baseUrl.includes('localhost')
+      ? `${baseUrl}/envelopes/${envelopeId}`
+      : `https://${clientSubdomain}.gxprosign.com/envelopes/${envelopeId}`;
 
     // Formater les destinataires
     const formattedRecipients = recipients.map(r => ({

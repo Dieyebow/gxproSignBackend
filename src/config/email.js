@@ -1,8 +1,9 @@
 const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 /**
  * Configuration du transporteur d'emails
- * Support pour SMTP, Gmail, SendGrid, Mailgun, etc.
+ * Support pour SMTP, Gmail, SendGrid, Mailgun, Resend API, etc.
  */
 const createTransporter = () => {
   const emailProvider = process.env.EMAIL_PROVIDER || 'smtp';
@@ -10,6 +11,56 @@ const createTransporter = () => {
   let transportConfig;
 
   switch (emailProvider.toLowerCase()) {
+    case 'resend':
+      // Configuration Resend API
+      const resend = new Resend(process.env.RESEND_API_KEY);
+
+      // Créer un wrapper compatible avec nodemailer
+      const resendTransporter = {
+        sendMail: async (mailOptions) => {
+          try {
+            // Si mailOptions.from est déjà formaté (contient <), l'utiliser tel quel
+            // Sinon, construire le format "Name <email>"
+            let fromAddress;
+            if (mailOptions.from && mailOptions.from.includes('<')) {
+              fromAddress = mailOptions.from;
+            } else {
+              fromAddress = `${process.env.EMAIL_FROM_NAME} <${process.env.EMAIL_FROM_ADDRESS}>`;
+            }
+
+            const result = await resend.emails.send({
+              from: fromAddress,
+              to: mailOptions.to,
+              subject: mailOptions.subject,
+              html: mailOptions.html,
+              text: mailOptions.text,
+              reply_to: mailOptions.replyTo || process.env.EMAIL_REPLY_TO,
+            });
+
+            console.log('✅ Email envoyé via Resend API:', result.data?.id);
+            return { messageId: result.data?.id };
+          } catch (error) {
+            console.error('❌ Erreur envoi email Resend:', error.message);
+            throw error;
+          }
+        },
+        verify: async () => {
+          // Vérifier que l'API key est configurée
+          if (!process.env.RESEND_API_KEY) {
+            throw new Error('RESEND_API_KEY non configurée');
+          }
+          console.log('✅ Service email Resend API prêt');
+          return true;
+        }
+      };
+
+      // Appeler verify de manière asynchrone
+      resendTransporter.verify().catch((error) => {
+        console.error('❌ Erreur configuration Resend:', error.message);
+      });
+
+      return resendTransporter;
+
     case 'gmail':
       // Configuration Gmail
       transportConfig = {

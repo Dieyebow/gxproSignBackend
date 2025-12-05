@@ -240,7 +240,11 @@ envelopeSchema.methods.getNextRecipient = function () {
     return null;
   }
 
-  return this.recipients.find((r) => r.order === this.workflow.currentStep && r.status === 'PENDING');
+  // Chercher le destinataire actuel qui doit signer (status SENT ou OPENED, pas encore SIGNED)
+  return this.recipients.find((r) =>
+    r.order === this.workflow.currentStep &&
+    (r.status === 'SENT' || r.status === 'OPENED')
+  );
 };
 
 // Vérifier si tous les signataires ont signé

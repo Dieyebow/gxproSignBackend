@@ -204,8 +204,8 @@ const clientSchema = new mongoose.Schema(
 );
 
 // Indexes
-clientSchema.index({ subdomain: 1 }, { unique: true });
-clientSchema.index({ email: 1 });
+// Note: subdomain already has unique index from schema definition
+// Note: email index removed to avoid duplicate index warning
 clientSchema.index({ status: 1 });
 
 // Méthodes d'instance
