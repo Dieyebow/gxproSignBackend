@@ -300,6 +300,11 @@ exports.sendEnvelope = async (req, res) => {
     const sender = await User.findById(envelope.sender.userId);
     const senderName = sender ? `${sender.firstName} ${sender.lastName}` : envelope.sender.name || 'GXpro Sign';
 
+    // Récupérer le client pour obtenir le sous-domaine
+    const Client = require('../models/Client');
+    const client = await Client.findById(envelope.clientId);
+    const clientSubdomain = client ? client.subdomain : null;
+
     if (envelope.workflow.type === 'SEQUENTIAL') {
       // Workflow séquentiel : envoyer seulement au premier destinataire
       const firstRecipient = envelope.recipients.find((r) => r.order === 1);
@@ -327,6 +332,7 @@ exports.sendEnvelope = async (req, res) => {
             message: envelope.emailMessage || 'Merci de réviser ce document.',
             reviewToken: firstRecipient.token,
             expiresAt: envelope.expiresAt,
+            clientSubdomain,
           });
         } else if (firstRecipient.role === 'APPROVER') {
           await emailService.sendApprovalRequestEmail({
@@ -338,6 +344,7 @@ exports.sendEnvelope = async (req, res) => {
             message: envelope.emailMessage || 'Merci d\'approuver ce document.',
             approvalToken: firstRecipient.token,
             expiresAt: envelope.expiresAt,
+            clientSubdomain,
           });
         }
       }
@@ -367,6 +374,7 @@ exports.sendEnvelope = async (req, res) => {
             message: envelope.emailMessage || 'Merci de réviser ce document.',
             reviewToken: recipient.token,
             expiresAt: envelope.expiresAt,
+            clientSubdomain,
           });
         } else if (recipient.role === 'APPROVER') {
           await emailService.sendApprovalRequestEmail({
@@ -378,6 +386,7 @@ exports.sendEnvelope = async (req, res) => {
             message: envelope.emailMessage || 'Merci d\'approuver ce document.',
             approvalToken: recipient.token,
             expiresAt: envelope.expiresAt,
+            clientSubdomain,
           });
         }
       }

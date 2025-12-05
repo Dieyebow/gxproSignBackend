@@ -397,8 +397,14 @@ class EmailService {
     message,
     reviewToken,
     expiresAt,
+    clientSubdomain,
   }) {
-    const reviewUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/review/${reviewToken}`;
+    // Construire l'URL avec le sous-domaine du client
+    const baseDomain = process.env.BASE_DOMAIN || 'gxprosign.com';
+    const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+    const reviewUrl = clientSubdomain
+      ? `${protocol}://${clientSubdomain}.${baseDomain}/review/${reviewToken}`
+      : `${process.env.FRONTEND_URL || 'http://localhost:5173'}/review/${reviewToken}`;
 
     return this.sendEmail({
       to: recipientEmail,
@@ -436,8 +442,14 @@ class EmailService {
     approvalToken,
     expiresAt,
     reviewStatus,
+    clientSubdomain,
   }) {
-    const approvalUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/approve/${approvalToken}`;
+    // Construire l'URL avec le sous-domaine du client
+    const baseDomain = process.env.BASE_DOMAIN || 'gxprosign.com';
+    const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+    const approvalUrl = clientSubdomain
+      ? `${protocol}://${clientSubdomain}.${baseDomain}/approve/${approvalToken}`
+      : `${process.env.FRONTEND_URL || 'http://localhost:5173'}/approve/${approvalToken}`;
 
     return this.sendEmail({
       to: recipientEmail,
