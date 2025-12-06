@@ -704,49 +704,54 @@ exports.approveDocument = async (req, res) => {
 
     console.log('✅ Document approuvé par', recipient.email);
 
-    // Vérifier si tous les reviewers/approvers ont approuvé
-    const allReviewersApproved = envelope.recipients
-      .filter(r => r.role === 'REVIEWER')
-      .every(r => r.status === 'APPROVED' || r.status === 'SIGNED');
+    // Compter les destinataires par rôle et leur statut
+    const reviewers = envelope.recipients.filter(r => r.role === 'REVIEWER');
+    const approvers = envelope.recipients.filter(r => r.role === 'APPROVER');
+    const signers = envelope.recipients.filter(r => r.role === 'SIGNER');
 
-    const allApproversApproved = envelope.recipients
-      .filter(r => r.role === 'APPROVER')
-      .every(r => r.status === 'APPROVED' || r.status === 'SIGNED');
+    const reviewersValidated = reviewers.filter(r => r.status === 'APPROVED' || r.status === 'SIGNED').length;
+    const approversValidated = approvers.filter(r => r.status === 'APPROVED' || r.status === 'SIGNED').length;
+    const signersValidated = signers.filter(r => r.status === 'SIGNED').length;
 
-    // Si tous ont approuvé, passer au statut suivant
-    if (allReviewersApproved && allApproversApproved) {
-      // Vérifier si tous les signers ont aussi signé
-      const allSignersSigned = envelope.recipients
-        .filter(r => r.role === 'SIGNER')
-        .every(r => r.status === 'SIGNED');
+    console.log(`📊 État validation:`);
+    console.log(`   Reviewers: ${reviewersValidated}/${reviewers.length}`);
+    console.log(`   Approvers: ${approversValidated}/${approvers.length}`);
+    console.log(`   Signers: ${signersValidated}/${signers.length}`);
 
-      if (allSignersSigned || envelope.recipients.filter(r => r.role === 'SIGNER').length === 0) {
-        envelope.status = 'COMPLETED';
-        envelope.dates.completedAt = new Date();
-        await envelope.save();
+    // Vérifier si TOUS les destinataires ont terminé (reviewers, approvers, signers)
+    const allReviewersValidated = reviewers.length === 0 || reviewersValidated === reviewers.length;
+    const allApproversValidated = approvers.length === 0 || approversValidated === approvers.length;
+    const allSignersValidated = signers.length === 0 || signersValidated === signers.length;
 
-        // Générer le PDF signé si nécessaire
-        const Field = require('../models/Field');
-        const Signature = require('../models/Signature');
-        const Document = require('../models/Document');
-        const pdfSignatureService = require('../services/pdfSignatureService');
+    // L'enveloppe est complétée SEULEMENT si tous les rôles ont terminé
+    if (allReviewersValidated && allApproversValidated && allSignersValidated) {
+      envelope.status = 'COMPLETED';
+      envelope.dates.completedAt = new Date();
+      await envelope.save();
 
-        const document = await Document.findById(envelope.documentId);
-        const signatures = await Signature.find({ envelopeId: envelope._id });
-        const fields = await Field.find({ envelopeId: envelope._id });
+      console.log('✅ Tous les destinataires ont validé - Enveloppe COMPLETED');
 
-        const pdfInfo = await pdfSignatureService.generateSignedPDF({
-          envelope,
-          document,
-          signatures,
-          fields,
-        });
+      // Générer le PDF signé
+      const Field = require('../models/Field');
+      const Signature = require('../models/Signature');
+      const Document = require('../models/Document');
+      const pdfSignatureService = require('../services/pdfSignatureService');
 
-        envelope.signedDocument = pdfInfo;
-        await envelope.save();
+      const document = await Document.findById(envelope.documentId);
+      const signatures = await Signature.find({ envelopeId: envelope._id });
+      const fields = await Field.find({ envelopeId: envelope._id });
 
-        console.log('✅ Enveloppe complétée et PDF généré');
-      }
+      const pdfInfo = await pdfSignatureService.generateSignedPDF({
+        envelope,
+        document,
+        signatures,
+        fields,
+      });
+
+      envelope.signedDocument = pdfInfo;
+      await envelope.save();
+
+      console.log('✅ PDF signé généré');
     } else {
       // Si workflow séquentiel et pas encore complété, déterminer qui doit recevoir l'email
       if (envelope.workflow.type === 'SEQUENTIAL') {
