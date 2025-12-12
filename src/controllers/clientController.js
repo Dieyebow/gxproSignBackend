@@ -223,6 +223,9 @@ const createClient = async (req, res) => {
     });
 
     // Envoyer un email de bienvenue avec lien d'activation
+    // Délai de 1 seconde avant l'envoi pour éviter le rate limiting
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
     await emailService.sendClientWelcomeEmail({
       email: client.email,
       companyName: client.companyName,

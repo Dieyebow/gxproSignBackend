@@ -353,6 +353,9 @@ exports.sendEnvelope = async (req, res) => {
       for (const recipient of envelope.recipients) {
         console.log(`📧 Envoi email à: ${recipient.email} (${recipient.role})`);
 
+        // Délai de 1 seconde entre chaque email pour éviter le rate limiting
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
         if (recipient.role === 'SIGNER') {
           await emailService.sendSignatureRequestEmail({
             recipientEmail: recipient.email,
@@ -997,6 +1000,9 @@ exports.rejectDocument = async (req, res) => {
     const emailService = require('../services/emailService');
     const Client = require('../models/Client');
     const client = await Client.findById(envelope.clientId);
+
+    // Délai de 1 seconde avant l'envoi pour éviter le rate limiting
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     await emailService.sendSignatureDeclinedEmail({
       senderEmail: envelope.sender.email,

@@ -336,6 +336,9 @@ const signDocument = async (req, res) => {
         const client = await Client.findById(envelope.clientId);
 
         if (sender) {
+          // Délai de 1 seconde avant l'envoi pour éviter le rate limiting
+          await new Promise(resolve => setTimeout(resolve, 1000));
+
           if (nextRecipient.role === 'REVIEWER') {
             await emailService.sendReviewRequestEmail({
               recipientEmail: nextRecipient.email,
@@ -389,6 +392,9 @@ const signDocument = async (req, res) => {
     const senderName = sender ? `${sender.firstName} ${sender.lastName}` : envelope.sender.name;
 
     console.log(`📧 Envoi email de confirmation à: ${recipient.email}`);
+    // Délai de 1 seconde avant l'envoi pour éviter le rate limiting
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
     await emailService.sendSignatureConfirmationEmail({
       recipientEmail: recipient.email,
       recipientName: `${recipient.firstName} ${recipient.lastName}`,
@@ -419,6 +425,9 @@ const signDocument = async (req, res) => {
       const client = await Client.findById(envelope.clientId);
 
       console.log(`📧 Envoi notification de progression à l'admin: ${sender.email}`);
+      // Délai de 1 seconde avant l'envoi pour éviter le rate limiting
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
       await emailService.sendSignatureProgressEmail({
         adminEmail: sender.email,
         adminName: senderName,
@@ -510,6 +519,9 @@ const signDocument = async (req, res) => {
         const client = await Client.findById(envelope.clientId);
 
         console.log(`📧 Envoi email de complétion à l'administrateur: ${sender.email}`);
+        // Délai de 1 seconde avant l'envoi pour éviter le rate limiting
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
         await emailService.sendEnvelopeCompletedEmail({
           senderEmail: sender.email,
           senderName: `${sender.firstName} ${sender.lastName}`,
@@ -613,6 +625,9 @@ const declineSignature = async (req, res) => {
     // Envoyer email à l'expéditeur
     const sender = await User.findById(envelope.sender).populate('documentId');
     if (sender) {
+      // Délai de 1 seconde avant l'envoi pour éviter le rate limiting
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
       await emailService.sendSignatureDeclinedEmail({
         senderEmail: sender.email,
         senderName: `${sender.firstName} ${sender.lastName}`,
