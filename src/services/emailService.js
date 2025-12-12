@@ -286,6 +286,54 @@ class EmailService {
   }
 
   /**
+   * Email de notification de progression pour l'admin
+   * Envoyé à chaque signature intermédiaire
+   */
+  async sendSignatureProgressEmail({
+    adminEmail,
+    adminName,
+    signerName,
+    signerEmail,
+    documentTitle,
+    signedAt,
+    totalRecipients,
+    signedCount,
+    remainingCount,
+    envelopeId,
+    clientSubdomain,
+  }) {
+    // Construire l'URL avec le sous-domaine du client
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const envelopeUrl = baseUrl.includes('localhost')
+      ? `${baseUrl}/envelopes/${envelopeId}`
+      : `https://${clientSubdomain}.gxprosign.com/envelopes/${envelopeId}`;
+
+    return this.sendEmail({
+      to: adminEmail,
+      subject: `Nouvelle signature : ${documentTitle} (${signedCount}/${totalRecipients})`,
+      template: 'signature-progress',
+      data: {
+        adminName,
+        signerName,
+        signerEmail,
+        documentTitle,
+        signedAt: new Date(signedAt).toLocaleDateString('fr-FR', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        totalRecipients,
+        signedCount,
+        remainingCount,
+        progressPercentage: Math.round((signedCount / totalRecipients) * 100),
+        envelopeUrl,
+      },
+    });
+  }
+
+  /**
    * Email de signature refusée
    */
   async sendSignatureDeclinedEmail({
@@ -399,12 +447,24 @@ class EmailService {
     expiresAt,
     clientSubdomain,
   }) {
+    console.log(`\n🔵━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`🔵 [sendReviewRequestEmail] DEBUT`);
+    console.log(`   📧 recipientEmail: ${recipientEmail}`);
+    console.log(`   👤 recipientName: ${recipientName}`);
+    console.log(`   👨‍💼 senderName: ${senderName}`);
+    console.log(`   📄 documentTitle: ${documentTitle}`);
+    console.log(`   🔑 reviewToken: ${reviewToken}`);
+    console.log(`   🏢 clientSubdomain: ${clientSubdomain}`);
+
     // Construire l'URL avec le sous-domaine du client
     const baseDomain = process.env.BASE_DOMAIN || 'gxprosign.com';
     const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
     const reviewUrl = clientSubdomain
       ? `${protocol}://${clientSubdomain}.${baseDomain}/review/${reviewToken}`
       : `${process.env.FRONTEND_URL || 'http://localhost:5173'}/review/${reviewToken}`;
+
+    console.log(`   🌐 reviewUrl: ${reviewUrl}`);
+    console.log(`🔵━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
     return this.sendEmail({
       to: recipientEmail,

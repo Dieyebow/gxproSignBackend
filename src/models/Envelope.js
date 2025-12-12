@@ -46,7 +46,7 @@ const recipientSchema = new mongoose.Schema(
     // Statut
     status: {
       type: String,
-      enum: ['PENDING', 'SENT', 'OPENED', 'SIGNED', 'APPROVED', 'DECLINED', 'EXPIRED'],
+      enum: ['PENDING', 'SENT', 'OPENED', 'SIGNED', 'REVIEWED', 'APPROVED', 'DECLINED', 'EXPIRED'],
       default: 'PENDING',
     },
 
@@ -58,10 +58,10 @@ const recipientSchema = new mongoose.Schema(
     declinedAt: Date,
     declineReason: String,
 
-    // Action effectuée (pour différencier sign/approve)
+    // Action effectuée (pour différencier sign/approve/review)
     action: {
       type: String,
-      enum: ['SIGN', 'APPROVE', 'REJECT'],
+      enum: ['SIGN', 'APPROVE', 'REVIEW', 'REJECT'],
     },
 
     // Métadonnées de signature
@@ -254,10 +254,18 @@ envelopeSchema.methods.getNextRecipient = function () {
   );
 };
 
-// Vérifier si tous les signataires ont signé
+// Vérifier si tous les destinataires ont complété leur action (signé, révisé, approuvé)
 envelopeSchema.methods.isAllSigned = function () {
-  const signers = this.recipients.filter((r) => r.role === 'SIGNER');
-  return signers.every((r) => r.status === 'SIGNED');
+  return this.recipients.every((r) => {
+    if (r.role === 'SIGNER') {
+      return r.status === 'SIGNED';
+    } else if (r.role === 'REVIEWER') {
+      return r.status === 'REVIEWED';
+    } else if (r.role === 'APPROVER') {
+      return r.status === 'APPROVED';
+    }
+    return false;
+  });
 };
 
 // Vérifier si l'enveloppe est expirée
@@ -313,14 +321,22 @@ envelopeSchema.methods.markAsSigned = async function (recipientId, metadata) {
     throw new Error('Destinataire introuvable');
   }
 
-  recipient.status = 'SIGNED';
+  // Définir le statut en fonction du rôle
+  if (recipient.role === 'SIGNER') {
+    recipient.status = 'SIGNED';
+  } else if (recipient.role === 'REVIEWER') {
+    recipient.status = 'REVIEWED';
+  } else if (recipient.role === 'APPROVER') {
+    recipient.status = 'APPROVED';
+  }
+
   recipient.signedAt = Date.now();
   recipient.signatureMetadata = metadata;
 
   // Workflow séquentiel : passer au suivant
   if (this.workflow.type === 'SEQUENTIAL') {
     const nextRecipient = this.recipients.find(
-      (r) => r.order === this.workflow.currentStep + 1 && r.role === 'SIGNER'
+      (r) => r.order === this.workflow.currentStep + 1
     );
 
     if (nextRecipient) {

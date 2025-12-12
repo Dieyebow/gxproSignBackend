@@ -164,7 +164,7 @@ const createClient = async (req, res) => {
     if (existingEmail) {
       return res.status(409).json({
         success: false,
-        message: 'Cet email est déjà utilisé.',
+        message: `Cet email est déjà utilisé par le client "${existingEmail.companyName}". Veuillez utiliser un autre email.`,
       });
     }
 

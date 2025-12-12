@@ -57,6 +57,7 @@ app.use(
       const isGxproSignDomain = origin && origin.match(/^https:\/\/([a-z0-9-]+\.)?gxprosign\.com$/);
 
       if (allowedOrigins.includes(origin) || isGxproSignDomain) {
+        console.log(`✅ CORS allowed origin: ${origin}`);
         callback(null, true);
       } else {
         console.warn(`⚠️  CORS blocked origin: ${origin}`);
@@ -64,6 +65,10 @@ app.use(
       }
     },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    maxAge: 600, // Cache preflight pendant 10 minutes
   })
 );
 

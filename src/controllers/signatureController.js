@@ -132,7 +132,7 @@ const getSignatureInfo = async (req, res) => {
         envelope: {
           id: envelope._id,
           title: envelope.title,
-          message: envelope.emailMessage || envelope.message,
+          message: envelope.message,
           expiresAt: envelope.dates?.expiresAt,
         },
         document: {
@@ -317,7 +317,74 @@ const signDocument = async (req, res) => {
       },
     });
 
-    // Envoyer email de confirmation au signataire qui vient de signer
+    // ⚡ PRIORITÉ 1: Envoyer l'email au prochain reviewer EN PREMIER (avant tout le reste)
+    // Vérifier si tous ont signé
+    const allSignedCheck = envelope.isAllSigned();
+
+    if (!allSignedCheck && envelope.workflow.type === 'SEQUENTIAL') {
+      const nextRecipient = envelope.getNextRecipient();
+      if (nextRecipient) {
+        console.log(`\n🚀━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`🚀 [PRIORITÉ 1] Envoi email au prochain reviewer`);
+        console.log(`   👤 Nom: ${nextRecipient.firstName} ${nextRecipient.lastName}`);
+        console.log(`   📧 Email: ${nextRecipient.email}`);
+        console.log(`   🎭 Rôle: ${nextRecipient.role}`);
+        console.log(`🚀━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+
+        const sender = await User.findById(envelope.sender.userId);
+        const Client = require('../models/Client');
+        const client = await Client.findById(envelope.clientId);
+
+        if (sender) {
+          if (nextRecipient.role === 'REVIEWER') {
+            await emailService.sendReviewRequestEmail({
+              recipientEmail: nextRecipient.email,
+              recipientName: `${nextRecipient.firstName} ${nextRecipient.lastName}`,
+              senderName: `${sender.firstName} ${sender.lastName}`,
+              documentTitle: envelope.documentId.title,
+              description: envelope.documentId.description,
+              message: envelope.message,
+              reviewToken: nextRecipient.token,
+              expiresAt: nextRecipient.tokenExpiration,
+              clientSubdomain: client?.subdomain,
+            });
+            console.log(`   ✅ Email REVIEWER envoyé en PRIORITÉ!\n`);
+          } else if (nextRecipient.role === 'SIGNER') {
+            await emailService.sendSignatureRequestEmail({
+              recipientEmail: nextRecipient.email,
+              recipientName: `${nextRecipient.firstName} ${nextRecipient.lastName}`,
+              senderName: `${sender.firstName} ${sender.lastName}`,
+              documentTitle: envelope.documentId.title,
+              description: envelope.documentId.description,
+              message: envelope.message,
+              signatureToken: nextRecipient.token,
+              expiresAt: nextRecipient.tokenExpiration,
+              clientSubdomain: client?.subdomain,
+            });
+            console.log(`   ✅ Email SIGNER envoyé en PRIORITÉ!\n`);
+          } else if (nextRecipient.role === 'APPROVER') {
+            await emailService.sendApprovalRequestEmail({
+              recipientEmail: nextRecipient.email,
+              recipientName: `${nextRecipient.firstName} ${nextRecipient.lastName}`,
+              senderName: `${sender.firstName} ${sender.lastName}`,
+              documentTitle: envelope.documentId.title,
+              description: envelope.documentId.description,
+              message: envelope.message,
+              approvalToken: nextRecipient.token,
+              expiresAt: nextRecipient.tokenExpiration,
+              clientSubdomain: client?.subdomain,
+            });
+            console.log(`   ✅ Email APPROVER envoyé en PRIORITÉ!\n`);
+          }
+
+          nextRecipient.status = 'SENT';
+          nextRecipient.sentAt = new Date();
+          await envelope.save();
+        }
+      }
+    }
+
+    // ⚡ PRIORITÉ 2: Envoyer email de confirmation au signataire qui vient de signer
     const sender = await User.findById(envelope.sender.userId);
     const senderName = sender ? `${sender.firstName} ${sender.lastName}` : envelope.sender.name;
 
@@ -330,10 +397,57 @@ const signDocument = async (req, res) => {
       signedAt: new Date(),
     });
 
+    // Compter les signatures/actions complétées
+    console.log('\n📊━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📊 [PROGRESSION] CALCUL DES SIGNATURES');
+    console.log('📊━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    const completedCount = envelope.recipients.filter(r =>
+      r.status === 'SIGNED' || r.status === 'REVIEWED' || r.status === 'APPROVED'
+    ).length;
+    const totalRecipients = envelope.recipients.length;
+    const remainingCount = totalRecipients - completedCount;
+
+    console.log(`✅ Complétés: ${completedCount}/${totalRecipients}`);
+    console.log(`⏳ Restants: ${remainingCount}`);
+    console.log(`📈 Pourcentage: ${Math.round((completedCount / totalRecipients) * 100)}%`);
+    console.log('📊━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+    // Envoyer notification de progression à l'administrateur (sauf si c'est la dernière signature)
+    if (sender && remainingCount > 0) {
+      const Client = require('../models/Client');
+      const client = await Client.findById(envelope.clientId);
+
+      console.log(`📧 Envoi notification de progression à l'admin: ${sender.email}`);
+      await emailService.sendSignatureProgressEmail({
+        adminEmail: sender.email,
+        adminName: senderName,
+        signerName: `${recipient.firstName} ${recipient.lastName}`,
+        signerEmail: recipient.email,
+        documentTitle: envelope.documentId.title,
+        signedAt: new Date(),
+        totalRecipients,
+        signedCount: completedCount,
+        remainingCount,
+        envelopeId: envelope._id,
+        clientSubdomain: client?.subdomain || 'app',
+      });
+    }
+
     // Vérifier si tous ont signé
+    console.log('\n🎯━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🎯 [WORKFLOW] VÉRIFICATION COMPLÉTION');
+    console.log('🎯━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
     const allSigned = envelope.isAllSigned();
 
+    console.log(`\n🎯 Résultat isAllSigned(): ${allSigned ? '✅ TOUS COMPLÉTÉS' : '❌ PAS ENCORE FINI'}\n`);
+
     if (allSigned) {
+      console.log('🎉━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('🎉 ENVELOPPE COMPLÉTÉE - TOUS ONT SIGNÉ!');
+      console.log('🎉━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
       envelope.status = 'COMPLETED';
       envelope.completedAt = new Date();
       await envelope.save();
@@ -407,30 +521,10 @@ const signDocument = async (req, res) => {
         });
       }
     } else {
-      // Workflow séquentiel : envoyer au suivant
-      if (envelope.workflow.type === 'SEQUENTIAL') {
-        const nextRecipient = envelope.getNextRecipient();
-        if (nextRecipient) {
-          // Envoyer email au prochain signataire
-          console.log(`📧 Envoi email au prochain signataire: ${nextRecipient.email}`);
-          if (sender) {
-            await emailService.sendSignatureRequestEmail({
-              recipientEmail: nextRecipient.email,
-              recipientName: `${nextRecipient.firstName} ${nextRecipient.lastName}`,
-              senderName: `${sender.firstName} ${sender.lastName}`,
-              documentTitle: envelope.documentId.title,
-              description: envelope.documentId.description,
-              message: envelope.message,
-              signatureToken: nextRecipient.token,
-              expiresAt: nextRecipient.tokenExpiration,
-            });
-          }
-
-          nextRecipient.status = 'SENT';
-          nextRecipient.sentAt = new Date();
-          await envelope.save();
-        }
-      }
+      console.log('⏭️━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('⏭️ [WORKFLOW] PAS ENCORE TERMINÉ');
+      console.log('⏭️  Email au prochain reviewer déjà envoyé en PRIORITÉ 1');
+      console.log('⏭️━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     }
 
     return res.status(200).json({

@@ -318,7 +318,7 @@ exports.sendEnvelope = async (req, res) => {
             senderName,
             documentTitle: envelope.title,
             description: envelope.description || '',
-            message: envelope.message || 'Merci de signer ce document.',
+            message: envelope.emailMessage || 'Merci de signer ce document.',
             signatureToken: firstRecipient.token,
             expiresAt: envelope.expiresAt,
           });
@@ -329,7 +329,7 @@ exports.sendEnvelope = async (req, res) => {
             senderName,
             documentTitle: envelope.title,
             description: envelope.description || '',
-            message: envelope.message || 'Merci de réviser ce document.',
+            message: envelope.emailMessage || 'Merci de réviser ce document.',
             reviewToken: firstRecipient.token,
             expiresAt: envelope.expiresAt,
             clientSubdomain,
@@ -341,7 +341,7 @@ exports.sendEnvelope = async (req, res) => {
             senderName,
             documentTitle: envelope.title,
             description: envelope.description || '',
-            message: envelope.message || 'Merci d\'approuver ce document.',
+            message: envelope.emailMessage || 'Merci d\'approuver ce document.',
             approvalToken: firstRecipient.token,
             expiresAt: envelope.expiresAt,
             clientSubdomain,
@@ -360,7 +360,7 @@ exports.sendEnvelope = async (req, res) => {
             senderName,
             documentTitle: envelope.title,
             description: envelope.description || '',
-            message: envelope.message || 'Merci de signer ce document.',
+            message: envelope.emailMessage || 'Merci de signer ce document.',
             signatureToken: recipient.token,
             expiresAt: envelope.expiresAt,
           });
@@ -371,7 +371,7 @@ exports.sendEnvelope = async (req, res) => {
             senderName,
             documentTitle: envelope.title,
             description: envelope.description || '',
-            message: envelope.message || 'Merci de réviser ce document.',
+            message: envelope.emailMessage || 'Merci de réviser ce document.',
             reviewToken: recipient.token,
             expiresAt: envelope.expiresAt,
             clientSubdomain,
@@ -383,7 +383,7 @@ exports.sendEnvelope = async (req, res) => {
             senderName,
             documentTitle: envelope.title,
             description: envelope.description || '',
-            message: envelope.message || 'Merci d\'approuver ce document.',
+            message: envelope.emailMessage || 'Merci d\'approuver ce document.',
             approvalToken: recipient.token,
             expiresAt: envelope.expiresAt,
             clientSubdomain,
@@ -490,17 +490,16 @@ exports.deleteEnvelope = async (req, res) => {
       });
     }
 
-    // Suppression définitive de l'enveloppe
-    await Envelope.findByIdAndDelete(id);
+    // Soft delete: marquer comme CANCELLED si en cours, sinon supprimer
+    if (envelope.status === 'DRAFT') {
+      await Envelope.findByIdAndDelete(id);
+      // Supprimer aussi les champs associés
+      await Field.deleteMany({ envelopeId: id });
+    } else {
+      await envelope.cancel();
+    }
 
-    // Supprimer aussi les champs associés
-    await Field.deleteMany({ envelopeId: id });
-
-    // Supprimer les signatures associées
-    const Signature = require('../models/Signature');
-    await Signature.deleteMany({ envelopeId: id });
-
-    console.log('✅ Enveloppe supprimée définitivement de la base de données');
+    console.log('✅ Enveloppe supprimée');
 
     return res.status(200).json({
       success: true,
@@ -648,11 +647,10 @@ exports.downloadSignedPDF = async (req, res) => {
 exports.approveDocument = async (req, res) => {
   try {
     const { token } = req.params;
-    const { comment, metadata, fields: fieldData } = req.body;
+    const { comment, metadata } = req.body;
 
     console.log('✅ POST /envelopes/approve/:token - Approbation document');
     console.log('  Token:', token);
-    console.log('  Fields data:', fieldData);
 
     const envelope = await Envelope.findOne({ 'recipients.token': token });
 
@@ -680,33 +678,25 @@ exports.approveDocument = async (req, res) => {
       });
     }
 
-    // Vérifier que le destinataire n'a pas déjà approuvé/révisé
-    if (recipient.status === 'APPROVED' || recipient.status === 'REVIEWED') {
-      const actionLabel = recipient.role === 'REVIEWER' ? 'révisé' : 'approuvé';
+    // Vérifier que le destinataire n'a pas déjà approuvé
+    if (recipient.status === 'APPROVED') {
       return res.status(400).json({
         success: false,
-        message: `Document déjà ${actionLabel}`,
+        message: 'Document déjà approuvé',
       });
     }
 
-    // Marquer comme approuvé ou révisé selon le rôle
-    if (recipient.role === 'REVIEWER') {
-      recipient.status = 'REVIEWED';
-      recipient.action = 'REVIEW';
-    } else if (recipient.role === 'APPROVER') {
-      recipient.status = 'APPROVED';
-      recipient.action = 'APPROVE';
-    }
+    // Marquer comme approuvé
+    recipient.status = 'APPROVED';
+    recipient.action = 'APPROVE';
     recipient.approvedAt = new Date();
     recipient.declineReason = comment || null;
 
-    // Enregistrer les métadonnées simples
-    if (metadata && Object.keys(metadata).length > 0) {
+    // Enregistrer les métadonnées
+    if (metadata) {
       recipient.signatureMetadata = {
-        ipAddress: metadata.ipAddress || req.ip,
-        userAgent: metadata.userAgent || req.get('user-agent'),
-        deviceType: metadata.deviceType || (req.get('user-agent')?.includes('Mobile') ? 'MOBILE' : 'DESKTOP'),
-        timestamp: new Date(),
+        ...recipient.signatureMetadata,
+        ...metadata,
       };
     }
 
@@ -714,106 +704,48 @@ exports.approveDocument = async (req, res) => {
 
     console.log('✅ Document approuvé par', recipient.email);
 
-    // Enregistrer les valeurs des champs (signatures, etc.)
-    if (fieldData && Array.isArray(fieldData)) {
-      const Field = require('../models/Field');
+    // Vérifier si tous les reviewers/approvers ont approuvé
+    const allReviewersApproved = envelope.recipients
+      .filter(r => r.role === 'REVIEWER')
+      .every(r => r.status === 'APPROVED' || r.status === 'SIGNED');
 
-      for (const fieldSubmission of fieldData) {
-        if (fieldSubmission.value && fieldSubmission.value.trim() !== '') {
-          try {
-            await Field.findByIdAndUpdate(
-              fieldSubmission.fieldId,
-              {
-                value: fieldSubmission.value,
-                status: 'FILLED',
-                fillDate: new Date(),
-              },
-              { new: true }
-            );
-            console.log(`  ✅ Champ ${fieldSubmission.fieldId} rempli`);
-          } catch (err) {
-            console.error(`  ❌ Erreur enregistrement champ ${fieldSubmission.fieldId}:`, err);
-          }
-        }
-      }
-    }
+    const allApproversApproved = envelope.recipients
+      .filter(r => r.role === 'APPROVER')
+      .every(r => r.status === 'APPROVED' || r.status === 'SIGNED');
 
-    // Compter les destinataires par rôle et leur statut
-    const reviewers = envelope.recipients.filter(r => r.role === 'REVIEWER');
-    const approvers = envelope.recipients.filter(r => r.role === 'APPROVER');
-    const signers = envelope.recipients.filter(r => r.role === 'SIGNER');
+    // Si tous ont approuvé, passer au statut suivant
+    if (allReviewersApproved && allApproversApproved) {
+      // Vérifier si tous les signers ont aussi signé
+      const allSignersSigned = envelope.recipients
+        .filter(r => r.role === 'SIGNER')
+        .every(r => r.status === 'SIGNED');
 
-    const reviewersValidated = reviewers.filter(r => r.status === 'REVIEWED' || r.status === 'APPROVED' || r.status === 'SIGNED').length;
-    const approversValidated = approvers.filter(r => r.status === 'APPROVED' || r.status === 'SIGNED').length;
-    const signersValidated = signers.filter(r => r.status === 'SIGNED').length;
+      if (allSignersSigned || envelope.recipients.filter(r => r.role === 'SIGNER').length === 0) {
+        envelope.status = 'COMPLETED';
+        envelope.dates.completedAt = new Date();
+        await envelope.save();
 
-    console.log(`📊 État validation:`);
-    console.log(`   Reviewers: ${reviewersValidated}/${reviewers.length}`);
-    console.log(`   Approvers: ${approversValidated}/${approvers.length}`);
-    console.log(`   Signers: ${signersValidated}/${signers.length}`);
+        // Générer le PDF signé si nécessaire
+        const Field = require('../models/Field');
+        const Signature = require('../models/Signature');
+        const Document = require('../models/Document');
+        const pdfSignatureService = require('../services/pdfSignatureService');
 
-    // Vérifier si TOUS les destinataires ont terminé (reviewers, approvers, signers)
-    const allReviewersValidated = reviewers.length === 0 || reviewersValidated === reviewers.length;
-    const allApproversValidated = approvers.length === 0 || approversValidated === approvers.length;
-    const allSignersValidated = signers.length === 0 || signersValidated === signers.length;
+        const document = await Document.findById(envelope.documentId);
+        const signatures = await Signature.find({ envelopeId: envelope._id });
+        const fields = await Field.find({ envelopeId: envelope._id });
 
-    // L'enveloppe est complétée SEULEMENT si tous les rôles ont terminé
-    if (allReviewersValidated && allApproversValidated && allSignersValidated) {
-      envelope.status = 'COMPLETED';
-      envelope.dates.completedAt = new Date();
-      await envelope.save();
+        const pdfInfo = await pdfSignatureService.generateSignedPDF({
+          envelope,
+          document,
+          signatures,
+          fields,
+        });
 
-      console.log('✅ Tous les destinataires ont validé - Enveloppe COMPLETED');
+        envelope.signedDocument = pdfInfo;
+        await envelope.save();
 
-      // Générer le PDF signé
-      const Field = require('../models/Field');
-      const Signature = require('../models/Signature');
-      const Document = require('../models/Document');
-      const pdfSignatureService = require('../services/pdfSignatureService');
-
-      const document = await Document.findById(envelope.documentId);
-      const signatures = await Signature.find({ envelopeId: envelope._id });
-      const fields = await Field.find({ envelopeId: envelope._id });
-
-      const pdfInfo = await pdfSignatureService.generateSignedPDF({
-        envelope,
-        document,
-        signatures,
-        fields,
-      });
-
-      envelope.signedDocument = pdfInfo;
-      await envelope.save();
-
-      console.log('✅ PDF signé généré');
-
-      // Envoyer notification de completion à l'expéditeur (admin)
-      const emailService = require('../services/emailService');
-      const User = require('../models/User');
-      const Client = require('../models/Client');
-
-      try {
-        const sender = await User.findById(envelope.sender.userId);
-        const client = await Client.findById(envelope.clientId);
-
-        if (sender && sender.email) {
-          // Petit délai avant l'envoi pour éviter les problèmes de rate limiting
-          await new Promise(resolve => setTimeout(resolve, 1000));
-
-          await emailService.sendEnvelopeCompletedEmail({
-            recipientEmail: sender.email,
-            recipientName: `${sender.firstName} ${sender.lastName}`,
-            documentTitle: envelope.title,
-            envelopeId: envelope._id.toString(),
-            signedDocumentUrl: pdfInfo.fileUrl,
-            clientSubdomain: client?.subdomain,
-          });
-
-          console.log('✅ Email de completion envoyé à l\'admin:', sender.email);
-        }
-      } catch (emailErr) {
-        console.error('❌ Erreur envoi email de completion:', emailErr);
-        // Ne pas bloquer le processus si l'email échoue
+        console.log('✅ Enveloppe complétée et PDF généré');
       }
     } else {
       // Si workflow séquentiel et pas encore complété, déterminer qui doit recevoir l'email
@@ -827,11 +759,11 @@ exports.approveDocument = async (req, res) => {
         const client = await Client.findById(envelope.clientId);
         const clientSubdomain = client ? client.subdomain : null;
 
-        // Vérifier si tous les REVIEWER ont validé (status REVIEWED, APPROVED ou SIGNED)
+        // Vérifier si tous les REVIEWER ont validé (status APPROVED ou SIGNED)
         const allReviewers = envelope.recipients.filter(r => r.role === 'REVIEWER');
-        const allReviewersValidated = allReviewers.every(r => r.status === 'REVIEWED' || r.status === 'APPROVED' || r.status === 'SIGNED');
+        const allReviewersValidated = allReviewers.every(r => r.status === 'APPROVED' || r.status === 'SIGNED');
 
-        console.log(`📊 Reviewers validés: ${allReviewers.filter(r => r.status === 'REVIEWED' || r.status === 'APPROVED' || r.status === 'SIGNED').length}/${allReviewers.length}`);
+        console.log(`📊 Reviewers validés: ${allReviewers.filter(r => r.status === 'APPROVED' || r.status === 'SIGNED').length}/${allReviewers.length}`);
 
         let nextRecipient = null;
 
@@ -839,7 +771,6 @@ exports.approveDocument = async (req, res) => {
           // Il reste des REVIEWER à valider → chercher le prochain REVIEWER en attente
           nextRecipient = envelope.recipients.find(r =>
             r.role === 'REVIEWER' &&
-            r.status !== 'REVIEWED' &&
             r.status !== 'APPROVED' &&
             r.status !== 'SIGNED' &&
             r.status !== 'DECLINED'
@@ -857,9 +788,6 @@ exports.approveDocument = async (req, res) => {
         }
 
         if (nextRecipient) {
-          // Petit délai avant l'envoi pour éviter les problèmes de rate limiting
-          await new Promise(resolve => setTimeout(resolve, 1000));
-
           // Envoyer l'email approprié selon le rôle
           if (nextRecipient.role === 'REVIEWER') {
             await emailService.sendReviewRequestEmail({
@@ -971,19 +899,12 @@ exports.rejectDocument = async (req, res) => {
     recipient.declinedAt = new Date();
     recipient.declineReason = reason;
 
-    // Enregistrer les métadonnées (seulement si elles existent)
+    // Enregistrer les métadonnées
     if (metadata) {
-      if (!recipient.signatureMetadata) {
-        recipient.signatureMetadata = {};
-      }
-
-      // Merger uniquement les champs définis
-      if (metadata.userAgent) recipient.signatureMetadata.userAgent = metadata.userAgent;
-      if (metadata.ipAddress) recipient.signatureMetadata.ipAddress = metadata.ipAddress;
-      if (metadata.deviceType) recipient.signatureMetadata.deviceType = metadata.deviceType;
-      if (metadata.geolocation) recipient.signatureMetadata.geolocation = metadata.geolocation;
-      if (metadata.signatureMethod) recipient.signatureMetadata.signatureMethod = metadata.signatureMethod;
-      if (metadata.signatureDuration) recipient.signatureMetadata.signatureDuration = metadata.signatureDuration;
+      recipient.signatureMetadata = {
+        ...recipient.signatureMetadata,
+        ...metadata,
+      };
     }
 
     // Marquer l'enveloppe entière comme DECLINED
@@ -1177,30 +1098,8 @@ exports.getEnvelopeByToken = async (req, res) => {
       });
     }
 
-    // Récupérer tous les champs de signature pour cette enveloppe
-    // Les zones de signature définies par l'admin s'appliquent à tous les signataires
-    const Field = require('../models/Field');
-    const fieldsFromDb = await Field.find({
-      envelopeId: envelope._id,
-    });
-
-    // Transform fields to frontend format
-    const fields = fieldsFromDb.map(field => ({
-      id: field._id,
-      type: field.type,
-      label: field.properties?.label || field.type,
-      page: field.position.page,
-      x: field.position.x,
-      y: field.position.y,
-      width: field.position.width,
-      height: field.position.height,
-      required: field.properties?.required || false,
-      value: field.value,
-    }));
-
     console.log('✅ Enveloppe trouvée:', envelope._id);
     console.log('📝 Destinataire:', recipient.email, '-', recipient.role);
-    console.log('📦 Champs trouvés:', fields.length);
 
     return res.status(200).json({
       success: true,
@@ -1223,7 +1122,6 @@ exports.getEnvelopeByToken = async (req, res) => {
         status: recipient.status,
         order: recipient.order,
       },
-      fields,
     });
   } catch (error) {
     console.error('❌ Erreur récupération enveloppe par token:', error);
