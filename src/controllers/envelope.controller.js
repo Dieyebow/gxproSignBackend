@@ -1183,11 +1183,12 @@ exports.getEnvelopeByToken = async (req, res) => {
       });
     }
 
-    // Récupérer tous les champs de signature pour cette enveloppe
-    // Les zones de signature définies par l'admin s'appliquent à tous les signataires
+    // Récupérer les champs de signature pour ce destinataire uniquement
+    // Chaque signataire a sa propre zone de signature définie par l'admin
     const Field = require('../models/Field');
     const fieldsFromDb = await Field.find({
       envelopeId: envelope._id,
+      recipientId: recipient.recipientId,
     });
 
     // Transform fields to frontend format

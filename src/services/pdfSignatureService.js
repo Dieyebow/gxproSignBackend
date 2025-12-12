@@ -77,8 +77,21 @@ class PDFSignatureService {
         console.log(`    PDF Points: x=${xPoints}, y=${pdfY}, w=${widthPoints}, h=${heightPoints}`);
 
         if (field.type === 'SIGNATURE' || field.type === 'INITIAL') {
-          // Intégrer l'image de signature (base64)
-          await this.embedSignatureImage(pdfDoc, page, field.value, xPoints, pdfY, widthPoints, heightPoints);
+          // Trouver le destinataire correspondant à ce champ
+          const recipient = envelope.recipients.find(r => r.recipientId === field.recipientId);
+
+          // Intégrer l'image de signature avec les informations du signataire
+          await this.embedSignatureImage(
+            pdfDoc,
+            page,
+            field.value,
+            xPoints,
+            pdfY,
+            widthPoints,
+            heightPoints,
+            recipient,
+            font
+          );
         } else if (field.type === 'TEXT' || field.type === 'NAME' || field.type === 'EMAIL') {
           // Calculer la taille de police en fonction de la hauteur du champ
           // Utiliser environ 70% de la hauteur pour la police
@@ -168,10 +181,14 @@ class PDFSignatureService {
   }
 
   /**
-   * Intégrer une image de signature (base64) dans le PDF
+   * Intégrer une image de signature (base64) dans le PDF avec informations du signataire
    */
-  async embedSignatureImage(pdfDoc, page, base64Image, x, y, width, height) {
+  async embedSignatureImage(pdfDoc, page, base64Image, x, y, width, height, recipient, font) {
     try {
+      // Réserver de l'espace pour le texte en bas (environ 30% de la hauteur)
+      const signatureHeight = height * 0.65;
+      const textAreaHeight = height * 0.35;
+
       // Extraire le format et les données base64
       const matches = base64Image.match(/^data:image\/(png|jpg|jpeg);base64,(.+)$/);
       if (!matches) {
@@ -190,17 +207,69 @@ class PDFSignatureService {
         image = await pdfDoc.embedJpg(imageBytes);
       }
 
-      // Calculer les dimensions pour maintenir le ratio
+      // Calculer les dimensions pour maintenir le ratio (en utilisant seulement 65% de la hauteur)
       const imageDims = image.scale(1);
-      const scale = Math.min(width / imageDims.width, height / imageDims.height);
+      const scale = Math.min(width / imageDims.width, signatureHeight / imageDims.height);
 
-      // Dessiner l'image
+      // Dessiner l'image de signature (en haut de la zone)
       page.drawImage(image, {
         x,
-        y,
+        y: y + textAreaHeight,
         width: imageDims.width * scale,
         height: imageDims.height * scale,
       });
+
+      // Ajouter les informations du signataire en dessous
+      if (recipient) {
+        const fontSize = 8;
+        const lineHeight = 10;
+        let currentY = y + textAreaHeight - 5;
+
+        // Nom complet du signataire
+        const fullName = normalizeText(`${recipient.firstName} ${recipient.lastName}`);
+        page.drawText(fullName, {
+          x,
+          y: currentY,
+          size: fontSize,
+          font,
+          color: rgb(0.2, 0.2, 0.2),
+        });
+        currentY -= lineHeight;
+
+        // Date et heure de signature
+        if (recipient.signedAt || recipient.approvedAt) {
+          const signedDate = new Date(recipient.signedAt || recipient.approvedAt);
+          const dateStr = normalizeText(
+            `Le ${signedDate.toLocaleDateString('fr-FR')} a ${signedDate.toLocaleTimeString('fr-FR', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}`
+          );
+          page.drawText(dateStr, {
+            x,
+            y: currentY,
+            size: fontSize,
+            font,
+            color: rgb(0.4, 0.4, 0.4),
+          });
+          currentY -= lineHeight;
+        }
+
+        // Rôle du signataire
+        const roleMap = {
+          'SIGNER': 'Signataire',
+          'REVIEWER': 'Réviseur',
+          'APPROVER': 'Approbateur',
+        };
+        const roleLabel = roleMap[recipient.role] || recipient.role;
+        page.drawText(normalizeText(roleLabel), {
+          x,
+          y: currentY,
+          size: fontSize - 1,
+          font,
+          color: rgb(0.5, 0.5, 0.5),
+        });
+      }
     } catch (error) {
       console.error('Erreur intégration image signature:', error);
       // Continuer même en cas d'erreur pour ne pas bloquer tout le processus
